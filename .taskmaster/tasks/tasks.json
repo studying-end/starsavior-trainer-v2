@@ -1,0 +1,808 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": "1",
+        "title": "通用框架迁移：logging_setup + models + regions + image_regions + manifest",
+        "description": "把通用可复用层原样迁入新包结构，不改逻辑。日志、数据模型(Rect/Action/Observation/GameState/Screen 枚举骨架)、区域配置加载与缩放、裁剪工具、离线回放数据。",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "details": "原样迁移，逐文件配单元测试。models.py 先放 21 Screen 枚举名（handler 在 T6/T10 后实现），Rect 须 frozen 且带 center 属性，Action 含 repeat(过场连点)，每画面 frozen dataclass payload，TrainingChoice.fail_rate:int|None（未选中卡绝不当 0% 赌博）。regions.py 的 scale_region_profile 是关键：区域配置只写一份基础分辨率。架构契约：OCR/CV 只产 Observation，绝不直接产 Action。",
+        "testStrategy": "单测：Rect.center 正确、scale_region_profile 缩放无误、load_region_profile JSON→Rect、Action.repeat 序列化、frozen payload 不可变。NoopOcrEngine 不在此任务。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "迁移 logging_setup.py",
+            "description": "按天文件 DEBUG + 错误独立文件 + 10MB 轮转 + 7 天清理 + UTF-8。丢弃旧 logger.py(重复)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:03:40.958Z"
+          },
+          {
+            "id": 2,
+            "title": "迁移 models.py 数据模型",
+            "description": "Rect(frozen,带center)/Action(click/move/scroll/pause/skip/repeat)/Observation/GameState + Screen 枚举骨架 + 每画面 frozen payload。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:03:40.964Z"
+          },
+          {
+            "id": 3,
+            "title": "迁移 regions.py",
+            "description": "RegionProfile + load_region_profile(JSON→Rect) + scale_region_profile(基础分辨率→当前截图)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:03:40.966Z"
+          },
+          {
+            "id": 4,
+            "title": "迁移 image_regions.py",
+            "description": "crop_region / export_region_crops(标定) / draw_region_overlay(核对)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:03:40.968Z"
+          },
+          {
+            "id": 5,
+            "title": "迁移 manifest.py + fixtures 结构",
+            "description": "load_manifest→GameState+Observation 列表，offline_harness 用。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:03:40.971Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T05:03:40.971Z"
+      },
+      {
+        "id": "2",
+        "title": "capture 截图层迁移（PrintWindow + DPI + 全黑回退）",
+        "description": "纯 Windows 通用截图层：DPI 感知 + PrintWindow 抓被遮挡 Unity 窗口 + 客户区缩放 + 前台激活 + 全黑帧回退。",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "details": "坑台账 F 类(30-32)全部在此规避。SetProcessDpiAwareness(2) 必须在任何窗口/截图调用前；用 PrintWindow+PW_RENDERFULLCONTENT(2) 不用 ImageGrab（窗口被遮挡/z-order 无关）；客户区缩放到目标分辨率(默认2560×1440)；activate_window 用 AttachThreadInput 绕过 Windows 反偷焦；检测全黑帧回退激活+屏幕抓取。",
+        "testStrategy": "截图非全黑；4K 150% DPI 下坐标不漂移；窗口被遮挡时仍抓对窗口；最小化时全黑回退生效。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "DPI 感知优先调用",
+            "description": "SetProcessDpiAwareness(2) 置于一切窗口/截图调用前。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:12:09.621Z"
+          },
+          {
+            "id": 2,
+            "title": "PrintWindow 抓客户区",
+            "description": "PrintWindow+PW_RENDERFULLCONTENT(2) 抓被遮挡/未聚焦 Unity 硬件加速窗口，缩放 2560×1440。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:12:09.624Z"
+          },
+          {
+            "id": 3,
+            "title": "activate_window",
+            "description": "AttachThreadInput 绕过 Windows 反偷焦，execute 前调用。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:12:09.627Z"
+          },
+          {
+            "id": 4,
+            "title": "全黑帧检测回退",
+            "description": "窗口最小化→PrintWindow 抓全黑→回退激活+屏幕抓取。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:12:09.629Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T05:12:09.629Z"
+      },
+      {
+        "id": "3",
+        "title": "ocr OCR 引擎迁移（PaddleOCR 多版本抽象）",
+        "description": "OcrEngine Protocol + NoopOcrEngine(管线测试) + PaddleOcrEngine，兼容 2.x/3.x/3.5 三种返回格式。",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "details": "PP-OCRv4_mobile；禁 oneDNN/PIR；read_lines 返回带 bbox 的行（角色列表滚动半行偏移用）。兼容 PaddleOCR 2.x/3.x/3.5 三种返回格式是历史踩坑沉淀。NoopOcrEngine 让管线测试无需 GPU。",
+        "testStrategy": "NoopOcrEngine 驱动管线测试通过；PaddleOcrEngine 在 2.x/3.x/3.5 返回格式上都能解析；read_lines 带 bbox。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "OcrEngine Protocol + NoopOcrEngine",
+            "description": "引擎抽象 + 空实现供管线测试。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:14:36.078Z"
+          },
+          {
+            "id": 2,
+            "title": "PaddleOcrEngine 实现",
+            "description": "PP-OCRv4_mobile，兼容 2.x/3.x/3.5 返回格式，禁 oneDNN/PIR。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:14:36.082Z"
+          },
+          {
+            "id": 3,
+            "title": "read_lines 带 bbox",
+            "description": "返回带 bbox 的行，供角色列表滚动半行偏移用。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:14:36.085Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T05:14:36.085Z"
+      },
+      {
+        "id": "4",
+        "title": "vision 颜色检测迁移 + 阈值重标定",
+        "description": "RingColorDetector/BlueButtonDetector 检测框架通用迁移，颜色阈值游戏特定需重标定。",
+        "status": "done",
+        "dependencies": [],
+        "priority": "medium",
+        "details": "框架通用(覆盖率0.03、饱和度0.18-0.30、14个颜色阈值常量结构)，但阈值数值是游戏特定的，需用实机截图重新标定后填入。坑台账：阈值游戏特定。",
+        "testStrategy": "蓝键检测在实机截图上正确；环色(蓝/金/彩虹)分类正确；阈值常量集中可改。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "迁移 RingColorDetector/BlueButtonDetector 检测框架与颜色阈值常量结构",
+            "description": "把 vision.py 占位文件落地为可用的检测框架：14 个颜色阈值常量（HSV/RGB 结构、覆盖率 0.03、饱和度 0.18-0.30 区间）+ RingColorDetector（蓝/金/彩虹/none 四分类，输出与 TrainingChoice.ring 字符串值域对齐）+ BlueButtonDetector（按区域统计蓝像素覆盖率回 bool）。阈值数值先填占位 None 或注释 TODO，标定在子任务 2 做。架构契约：检测器只返回 Observation 级数据（类别/置信度），绝不构造 Action。",
+            "dependencies": [],
+            "details": "实现要点：(1) 14 个颜色阈值常量集中在模块顶部或独立 dataclass，命名清晰（如 RING_BLUE_HSV_LOW/HIGH、BUTTON_BLUE_HSV_LOW/HIGH），数值用常量占位 + 注释指向子任务 2 标定；(2) RingColorDetector.detect(rect, image)->{'ring': 'blue|gold|rainbow|none', 'confidence': float}，覆盖率阈值 0.03 作为分类触发条件；(3) BlueButtonDetector.detect(rect, image)->bool，饱和度区间 0.18-0.30 用于过滤伪蓝；(4) 用 cv2.cvtColor BGR2HSV + cv2.inRange 掩码 + 像素占比统计；(5) 单文件预计 <200 行，无需拆分；(6) 依赖 numpy/opencv，与现有 ocr.py/capture.py 同一技术栈。不在此子任务做实机标定，不实现具体 screen reader 调用点（那是 T6/T10 后）。",
+            "status": "done",
+            "testStrategy": "单测用合成 HSV 图像（已知颜色块）验证：RingColorDetector 对纯蓝/纯金/多色块分别返回 blue/gold/rainbow；纯灰背景返回 none；BlueButtonDetector 对蓝像素覆盖>3% 返回 True、对灰背景返回 False；阈值常量集中可读（grep 全文唯一）。不依赖实机截图，用 numpy 合成。",
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:44:26.298Z"
+          },
+          {
+            "id": 2,
+            "title": "实机截图重标定颜色阈值并填入常量",
+            "description": "用真实游戏截图（蓝/金/彩虹环训练卡、蓝色确认按钮）采样像素 HSV/RGB 分布，反推覆盖率和饱和度阈值数值，填入子任务 1 的占位常量，替换 TODO。坑台账：阈值游戏特定，旧值在新游戏分辨率/渲染下会漂。",
+            "dependencies": [
+              1
+            ],
+            "details": "标定流程：(1) 从 docs/现有项目架构分析.md 或 fixtures 指定的截图目录读取样本（若无样本截图，需先在实机或离线 manifest 收集 5-10 张含三类环 + 蓝按钮的帧）；(2) 写一次性标定脚本（不入包，放 tests/scripts 或临时位置）遍历样本，对每类像素统计 H/S/V 分布 min/max/分位数；(3) 反推：RING_BLUE_HSV 区间须覆盖 ≥97% 蓝环样本像素、且与非蓝样本重叠率 <5%；蓝按钮覆盖率阈值按样本实测分布取保守值（0.03 左右），饱和度下限/上限卡掉灰背景与高光；(4) 把数值填回 vision.py 顶部常量，删除 TODO 注释；(5) 子任务 1 的合成图像单测保持通过（合成色块应在真实阈值内）；(6) 若实机样本暂不可用，本子任务可标 blocked 并在 PRD/T18 实跑阶段补做——但必须留下采样脚本和待填位置。",
+            "status": "done",
+            "testStrategy": "实机截图回归：对每张样本帧跑 RingColorDetector/BlueButtonDetector，分类与人工标注一致率 ≥95%（蓝/金/彩虹三分类混淆矩阵对角线占优）；T18 完整 run 时坐标+颜色联合验证不点偏。若样本不可得，至少留可重跑的标定脚本与空阈值位置。",
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:44:26.301Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T05:44:26.301Z"
+      },
+      {
+        "id": "5",
+        "title": "executor 鼠标执行迁移（急停双保险 + mouse_event）",
+        "description": "DryRun/PyAutoGui 执行器：FAILSAFE+4角急停 + 底层 mouse_event 悬停/拖拽 + repeat 连点 + 坐标映射。",
+        "status": "done",
+        "dependencies": [],
+        "priority": "high",
+        "details": "坑台账 C 类(17-19)+D 类(20-23)在此规避。FAILSAFE=True+4角急停(margin=120)；_hover_move 用 mouse_event 相对位移模拟真悬停(pyautogui SetCursorPos 瞬移 Unity 不识别)；_drag_scroll 同理真拖拽(Unity 忽略合成滚轮)；repeat ~5Hz 连点；map_action_to_rect 截图坐标→屏幕坐标。急停在 execute 前再查一次(OCR 耗时数秒，顶部检查会被 moveTo 覆盖)。",
+        "testStrategy": "DryRun 输出正确 Action；hover 刷新详情面板；execute 前急停复查生效；4角急停 margin 正确。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "FAILSAFE + 4角急停",
+            "description": "FAILSAFE=True，margin=120，每迭代顶部+execute前各查一次。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:16:24.821Z"
+          },
+          {
+            "id": 2,
+            "title": "mouse_event 悬停/拖拽",
+            "description": "_hover_move/_drag_scroll 用底层 mouse_event 相对位移(坑 D 类)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:16:24.823Z"
+          },
+          {
+            "id": 3,
+            "title": "repeat + 坐标映射",
+            "description": "repeat ~5Hz 连点；map_action_to_rect 截图→屏幕坐标。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:16:24.826Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T05:16:24.826Z"
+      },
+      {
+        "id": "6",
+        "title": "Screen 枚举 + screens/base ScreenHandler 协议",
+        "description": "定义 21 画面 Screen 枚举 + ScreenHandler Protocol + DelegatingScreenHandler 迁移过渡。",
+        "status": "done",
+        "dependencies": [
+          "1"
+        ],
+        "priority": "high",
+        "details": "21 Screen 枚举(+UNKNOWN+REWARD+GAME_MENU)。丢弃旧项目废弃半成品 journey_navigator(已被 live_loop 覆盖)。ScreenHandler Protocol(screen/priority/has_anchor/parse/decide)是识别层与决策层解耦的契约点。DelegatingScreenHandler 迁移期过渡，行为 1:1 零回归。",
+        "testStrategy": "枚举完整(21+UNKNOWN+REWARD+GAME_MENU)；Protocol 类型检查通过；不含废弃 journey_navigator。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "定义 Screen 枚举",
+            "description": "21 画面+UNKNOWN+REWARD+GAME_MENU，不含 journey_navigator。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:25:11.336Z"
+          },
+          {
+            "id": 2,
+            "title": "ScreenHandler Protocol",
+            "description": "screen/priority/has_anchor/parse/decide 五方法协议。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:25:11.339Z"
+          },
+          {
+            "id": 3,
+            "title": "DelegatingScreenHandler",
+            "description": "迁移过渡，行为 1:1 零回归。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:25:11.341Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T05:25:11.341Z"
+      },
+      {
+        "id": "7",
+        "title": "screens 注册表（唯一调度枢纽）",
+        "description": "HANDLERS(Screen→handler)+ANCHOR_HANDLERS(按priority有序)，三处调度统一入口。加画面只动此处。",
+        "status": "done",
+        "dependencies": [
+          "6"
+        ],
+        "priority": "high",
+        "details": "架构契约核心：classifier 画面匹配、policy.decide、live_loop payload 读取三处统一走注册表。每 handler 声明 ocr_prefixes。先建空注册表结构与类型，handler 实例在 T10/T13 后填入。",
+        "testStrategy": "注册表完备性(每 Screen 有 handler 占位)；三处调度入口一致；加新画面只需改此处。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "HANDLERS + ANCHOR_HANDLERS 结构",
+            "description": "Screen→handler 全量映射 + 按 priority 有序列表。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:29:40.289Z"
+          },
+          {
+            "id": 2,
+            "title": "ocr_prefixes 声明",
+            "description": "每 handler 声明锚点文案前缀。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:29:40.295Z"
+          },
+          {
+            "id": 3,
+            "title": "三处统一入口",
+            "description": "classify/decide/payload 读取统一走注册表。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:29:40.299Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T05:29:40.299Z"
+      },
+      {
+        "id": "8",
+        "title": "classifier 画面分类（hybrid + _has_X_signature 消歧）",
+        "description": "三种分类器 + 每易混淆画面多信号消歧函数 + 陷阱画面 priority 高早检查。",
+        "status": "done",
+        "dependencies": [
+          "3",
+          "4",
+          "6",
+          "7"
+        ],
+        "priority": "high",
+        "details": "坑台账 A 类(1-11)🔴 高优先级在此规避。classify_by_ocr 两遍加速(先OCR ~26 fast anchors 不命中再全量 ~54 区域，单帧5-6s→<1s)；classify_by_blue_button 纯颜色无OCR；classify_hybrid(OCR+蓝键兜底，实跑默认)。每易混淆画面配 _has_X_signature(旅程起点/事件/训练选择/D-DAY/区域移动/评鉴战/委托/奖励/游戏菜单/祝福)。陷阱画面(REWARD/GAME_MENU)独立 Screen+priority=2 早检查。",
+        "testStrategy": "21 画面分类准确；11 类混淆画面不串(旅程起点→正确分支、D-DAY交易→SHOP而非BATTLE等)；陷阱画面优先检查；hybrid 两遍加速达标。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "三种分类器",
+            "description": "classify_by_ocr(两遍加速)/classify_by_blue_button(纯颜色)/classify_hybrid(实跑默认)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T17:55:11.855Z"
+          },
+          {
+            "id": 2,
+            "title": "_has_X_signature 消歧函数",
+            "description": "每易混淆画面多信号消歧(坑 A 类 1-11)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T17:55:11.864Z"
+          },
+          {
+            "id": 3,
+            "title": "陷阱画面 priority 早检查",
+            "description": "REWARD/GAME_MENU 独立 Screen+priority=2 早检查。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T17:55:11.867Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T17:55:11.867Z"
+      },
+      {
+        "id": "9",
+        "title": "文字工具层（screen_reader 拆分 part1：text_constants + ocr_reader + text_utils）",
+        "description": "从旧 1557 行 screen_reader.py 拆出常量/OCR 基础设施/文字工具三块。",
+        "status": "done",
+        "dependencies": [
+          "3"
+        ],
+        "priority": "high",
+        "details": "text_constants.py(ALIASES)；ocr_reader.py(RegionText/RegionOcrReader: read_all/read_names/read_prefixes/read_where 带 max_area 过滤)；text_utils.py(normalize_ocr_text/contains_any_text/extract_character_name/parse_first_int 容错 o/l/i/s/parse_rank_number 不守卫相邻字母/parse_percent)。坑台账 E 类(24-29)OCR 数字解析经验沉淀于此。",
+        "testStrategy": "parse_rank_number 不丢前导1(RANK17 不读成7)；parse_first_int 容错 o/l/i/s；按钮匹配用稳定前缀(委托'接'受'前导'接')；max_area 过滤生效。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "text_constants.py",
+            "description": "ALIASES 常量(属性/训练名/商店等)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:37:11.978Z"
+          },
+          {
+            "id": 2,
+            "title": "ocr_reader.py",
+            "description": "RegionText/RegionOcrReader(read_all/names/prefixes/where，max_area 过滤)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:37:11.981Z"
+          },
+          {
+            "id": 3,
+            "title": "text_utils.py",
+            "description": "normalize/contains_any/extract_character_name/parse_first_int/parse_rank_number/parse_percent。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:37:11.985Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T05:37:11.985Z"
+      },
+      {
+        "id": "10",
+        "title": "各画面 payload parser（screen_reader 拆分 part2）",
+        "description": "每画面一个 parser，OCR 锚点文案按实机重新校准。",
+        "status": "done",
+        "dependencies": [
+          "6",
+          "9"
+        ],
+        "priority": "high",
+        "details": "screens/*.py：character_select(滚动列表+bbox定位+_match_character_variants 同名多形态)；blessing；relic(_relic_attribute_from_name 部位→属性)；training(含 D-DAY 评鉴战分支)；rest/event/commission/shop/region_move/battle；simple(journey_start/confirm_dialog/event_fast_forward/dialogue)。OCR 锚点文案是游戏特定的，全部按实机校准。parse 产 Observation.payload(frozen dataclass)。",
+        "testStrategy": "各 parser 单测通过；payload 为 frozen dataclass；character_select 滚动列表+同名多形态匹配；training D-DAY 分支正确。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "character_select parser",
+            "description": "滚动列表+bbox定位+同名多形态匹配。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:55:59.803Z"
+          },
+          {
+            "id": 2,
+            "title": "blessing/relic parser",
+            "description": "祝福卡；遗物部位→属性映射。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:59:50.444Z"
+          },
+          {
+            "id": 3,
+            "title": "training/rest/event/commission/shop/region_move/battle parser",
+            "description": "训练(含D-DAY分支)/休息/事件/委托/商店/区域移动/战斗。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T06:06:22.148Z"
+          },
+          {
+            "id": 4,
+            "title": "simple 画面 + 锚点校准",
+            "description": "journey_start/confirm_dialog/event_fast_forward/dialogue；OCR 锚点按实机校准。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T06:08:40.566Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T06:08:40.566Z"
+      },
+      {
+        "id": "11",
+        "title": "config 资产（区域坐标 + 角色 + 事件）",
+        "description": "最游戏特定资产：regions/characters/events 三份 JSON 配置。",
+        "status": "done",
+        "dependencies": [
+          "1"
+        ],
+        "priority": "high",
+        "details": "config/regions/2560x1440.json(主，330+区域 {name,resolution,regions:{区域名:[x,y,w,h]}})；config/characters.json(_attribute_rule/_profile_mapping/characters[45+]，name 须等于 OCR 清洗后名字)；config/events.json(22事件，部分标题与 OCR 不符→回退关键词)。",
+        "testStrategy": "区域加载+scale 缩放正确；角色 name 与 OCR 清洗后输出一致；events 回退关键词生效。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "config/regions/2560x1440.json",
+            "description": "主配置 330+ 区域 + scale 验证。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:40:59.867Z"
+          },
+          {
+            "id": 2,
+            "title": "config/characters.json",
+            "description": "45+ 角色，name=OCR 清洗后名字。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:40:59.870Z"
+          },
+          {
+            "id": 3,
+            "title": "config/events.json",
+            "description": "22 事件，标题不符→回退关键词。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T05:40:59.876Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T05:40:59.876Z"
+      },
+      {
+        "id": "12",
+        "title": "policy 决策引擎骨架（policy.py 拆分 part1：config + engine + 状态机 + event_db）",
+        "description": "PolicyConfig 集中配置 + TrainerPolicy 分发 + _pending_X 两步确认状态机 + 事件库。",
+        "status": "done",
+        "dependencies": [
+          "1",
+          "6",
+          "10"
+        ],
+        "priority": "high",
+        "details": "坑台账 B 类(12-16)🔴 高优先级在此规避。policy/config.py(PolicyConfig 所有阈值/坐标集中：min_screen_confidence=0.75/max_training_fail_rate=30/meditation_coin_threshold=60/ring_bonus/shop_whitelist/early_game_rounds=12)；policy/engine.py(TrainerPolicy init+decide 分发+_pending_relic/_pending_blessing/_pending_rest/_pending_commission/_char_pending_confirm 实例状态)；policy/event_db.py(DEFAULT_EVENT_KEYWORDS+_load_event_db+_match_event 字符级模糊0.6)。两步操作统一 _pending_X 状态机防 OCR 抖动翻转。",
+        "testStrategy": "_pending_* 状态记忆防翻转(选A→下帧直接确认A)；decide 正确分发到子决策；PolicyConfig 阈值可集中改。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "policy/config.py",
+            "description": "PolicyConfig 所有阈值/坐标集中。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T16:18:41.586Z"
+          },
+          {
+            "id": 2,
+            "title": "policy/engine.py + _pending_X 状态机",
+            "description": "TrainerPolicy init+decide 分发+_pending_* 实例状态防翻转(坑 B 类)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T16:18:41.590Z"
+          },
+          {
+            "id": 3,
+            "title": "policy/event_db.py",
+            "description": "关键词库+字符级模糊阈值0.6。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T16:18:41.594Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T16:18:41.594Z"
+      },
+      {
+        "id": "13",
+        "title": "policy 各决策（policy.py 拆分 part2）",
+        "description": "各画面决策子模块：训练评分/角色选择/祝福/事件/遗物委托/商店技能。",
+        "status": "done",
+        "dependencies": [
+          "12"
+        ],
+        "priority": "high",
+        "details": "policy/training.py(training_score=stat_gain+ring_bonus(早期×2.5)-fail_penalty+strategic_bias+early_bonus)；policy/character_select.py(候选排序+双向滚动cap=30先下到底反向上只反转一次防振荡+_char_pending_confirm)；policy/blessing.py；policy/event.py(关键词优先级+DB→分支→关键词三级降级)；policy/relic_commission.py；policy/shop_skill.py(shop_item_worth_buying 按效果/skill_score 已习得返回-inf)。坑台账 B 类 15 双向滚动覆盖上方目标。",
+        "testStrategy": "双向滚动能找到上方目标；重复点击3次相同→强制pause防死循环；training_score 排序合理；已习得技能返回 -inf。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "training + character_select 决策",
+            "description": "training_score 评分；候选排序+双向滚动cap=30+重复点击计数。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T16:43:31.884Z"
+          },
+          {
+            "id": 2,
+            "title": "blessing + event 决策",
+            "description": "祝福；事件三级降级(DB→分支→关键词)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T16:43:31.887Z"
+          },
+          {
+            "id": 3,
+            "title": "relic/commission + shop/skill 决策",
+            "description": "遗物委托；商店按效果买+技能已习得返回-inf。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T16:43:31.894Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T16:43:31.894Z"
+      },
+      {
+        "id": "14",
+        "title": "SKILL_SELECT 决策规则（坑 #35 待解决项，新项目先规划）",
+        "description": "补全旧项目完全缺失的技能选择决策：学最优技能而非点✕退出。",
+        "status": "done",
+        "dependencies": [
+          "13"
+        ],
+        "priority": "medium",
+        "details": "坑台账 #35：旧项目 policy 早期直接点✕退出不学技能，规则完全缺失。新项目一开始就规划。需 SKILL_SELECT payload parser + skill_score(已习得返回 -inf)，按策略选最优技能。坐标需实跑核对(坑 #34)。",
+        "testStrategy": "选技能而非退出；已习得技能跳过；坐标实跑不点偏。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "SKILL_SELECT payload parser",
+            "description": "解析可选技能+已习得状态。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T19:38:34.080Z"
+          },
+          {
+            "id": 2,
+            "title": "skill_score 决策",
+            "description": "已习得返回 -inf；选最优技能而非点✕。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T19:38:34.083Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T19:38:34.083Z"
+      },
+      {
+        "id": "15",
+        "title": "检视器重写（多帧点击收集 + 解耦调用顺序）",
+        "description": "training/commission/shop/blessing 四检视器，点开→读→点开→读 多帧循环，解耦调用顺序依赖。",
+        "status": "done",
+        "dependencies": [
+          "5",
+          "10",
+          "13"
+        ],
+        "priority": "high",
+        "details": "在 live_loop 优先于 policy 调用，返回 None 才回落。training_inspector(逐张点训练卡读增益，任一失败率≥阈值立即放弃其余去休息，两步确认不依赖OCR)；commission_inspector(读建议综合等级RANK17选RANK+3内最高阶)；shop_inspector(按效果关键词买回复体力/潜质点退还，限购1件买完即退)；blessing_inspector(读子祝福数选最多，悬停不刷新必须click)。坑台账 #39：解耦 CommissionInspector 需先经训练大厅读 character_rank 的架构耦合点。",
+        "testStrategy": "多帧点击收集信息正确；training 任一失败率高→放弃去休息；shop 限购1件；blessing 必须 click；检视器独立可测不依赖调用顺序。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "training_inspector",
+            "description": "逐张点训练卡读增益，失败率≥阈值放弃去休息。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T18:11:10.491Z"
+          },
+          {
+            "id": 2,
+            "title": "commission/shop/blessing inspector",
+            "description": "委托建议等级/商店效果限购1/祝福子祝福数(必须click)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T18:11:10.502Z"
+          },
+          {
+            "id": 3,
+            "title": "解耦调用顺序依赖",
+            "description": "character_rank 传递解耦(坑 #39)，检视器独立可测。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T18:11:10.505Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T18:11:10.505Z"
+      },
+      {
+        "id": "16",
+        "title": "round_tracker + CLI live_loop 主循环",
+        "description": "单屏状态机主循环编排：12 步迭代严格复刻 + 回合追踪 + UNKNOWN 处理 + 智能睡眠。",
+        "status": "done",
+        "dependencies": [
+          "2",
+          "3",
+          "4",
+          "5",
+          "7",
+          "8",
+          "12",
+          "13",
+          "15"
+        ],
+        "priority": "high",
+        "details": "架构文档 §4 单次迭代 12 步严格复刻：急停检查→F9暂停(trigger_on_release)→截图→缩放区域→hybrid分类→UNKNOWN处理(连续≤4帧点中心推进/>4帧pause)→parse payload(走HANDLERS)→回合追踪(TRAINING_HUB读日期+RANK更新character_rank)→检视器优先/policy回落→CHARACTER_SELECT重复点击3次强制pause→执行前再查急停→activate→map_action_to_rect→execute→智能睡眠(过场0.35s连点/TRAINING_SELECT 0.5s/其他3s)。round_tracker 大厅无回合数靠日期变化计数，规范化失败返None不前进(坑 #29 避免月份碰撞)。CLI 参数：--profile/--window-title/--execute/--hybrid-mode/--character/--variant/--max-iterations。",
+        "testStrategy": "离线回放驱动单帧 12 步正确执行；急停双保险生效；UNKNOWN 处理逻辑正确；智能睡眠按时长区分；round_tracker 月份碰撞返None。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "round_tracker",
+            "description": "日期变化计数，规范化失败返None不前进(坑 #29)。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T18:28:58.730Z"
+          },
+          {
+            "id": 2,
+            "title": "live_loop 12 步迭代",
+            "description": "严格复刻架构文档§4 单次迭代顺序。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T19:23:28.276Z"
+          },
+          {
+            "id": 3,
+            "title": "UNKNOWN + 防死循环 + 智能睡眠",
+            "description": "UNKNOWN(≤4/>4帧)；CHARACTER_SELECT重复3次强制pause；智能睡眠分级。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T19:23:28.280Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T19:23:28.280Z"
+      },
+      {
+        "id": "17",
+        "title": "offline_harness + Flask Web UI",
+        "description": "离线回放(无需游戏测管线) + Flask REST/SSE Web UI(5 Tab)。",
+        "status": "done",
+        "dependencies": [
+          "16"
+        ],
+        "priority": "medium",
+        "details": "cli/offline_harness.py(demo/manifest/截图目录三种回放)；web/app.py(Flask REST API+SSE 流式日志+全局单进程锁，_run_command 子进程包装 CLI)；5 Tab(训练循环/截图窗口/区域标定OCR/离线测试/单元测试)，同一时刻只跑一个子进程。templates/index.html + static/{style.css,script.js}。",
+        "testStrategy": "离线回放跑通识别+决策管线；Web UI 单进程锁生效；SSE 日志流式输出；5 Tab 切换正常。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "cli/offline_harness",
+            "description": "demo/manifest/截图目录离线回放。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T19:51:15.248Z"
+          },
+          {
+            "id": 2,
+            "title": "web/app.py Flask",
+            "description": "REST API+SSE日志+全局单进程锁+_run_command 子进程包装。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T19:51:15.251Z"
+          },
+          {
+            "id": 3,
+            "title": "5 Tab UI",
+            "description": "训练/截图/标定/离线/单测 五 Tab + 模板/静态资源。",
+            "status": "done",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-06-27T19:51:15.252Z"
+          }
+        ],
+        "updatedAt": "2026-06-27T19:51:15.252Z"
+      },
+      {
+        "id": "18",
+        "title": "单元测试迁移 + 实跑完整 run 验证",
+        "description": "迁移旧 148 测试 + 真实 OCR 准确率评估 + 坐标核对 + 一次确认成功的完整 run。",
+        "status": "in-progress",
+        "dependencies": [
+          "16",
+          "17"
+        ],
+        "priority": "high",
+        "details": "PRD 验收硬约束#1+#2 落地。迁移旧 148 单元测试 + 新增拆分子模块测试；真实 OCR 准确率评估(坑 #37 旧测试用假OCR)；SHOP/BATTLE/REGION_MOVE 坐标实跑核对(坑 #34 估算值未核对)；一次确认成功的完整 run(坑 #38 STATUS.md 最大风险)。耐力耗尽卡死跨画面导航实跑验证(坑 #33 未验证)。",
+        "testStrategy": "全测试通过；真实 OCR 准确率达标；坐标实跑不点偏；完成一次成功的完整训练 run。",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "迁移+新增单元测试",
+            "description": "旧 148 测试 + 拆分子模块新测试，NoopOcrEngine 让管线测试无需GPU。",
+            "status": "in-progress",
+            "dependencies": [],
+            "parentId": "undefined",
+            "updatedAt": "2026-07-04T01:34:44.162Z"
+          },
+          {
+            "id": 2,
+            "title": "真实 OCR 准确率评估",
+            "description": "坑 #37：系统评估真实 OCR 准确率(旧测试用假OCR)。",
+            "status": "pending",
+            "dependencies": [],
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "坐标实跑核对",
+            "description": "坑 #34：SHOP/BATTLE/REGION_MOVE 坐标实跑核对。",
+            "status": "pending",
+            "dependencies": [],
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "一次确认成功的完整 run",
+            "description": "坑 #38 最大风险：完成一次成功的完整训练 run + 耐力耗尽导航验证(坑 #33)。",
+            "status": "pending",
+            "dependencies": [],
+            "parentId": "undefined"
+          }
+        ],
+        "updatedAt": "2026-07-04T01:34:44.162Z"
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "lastModified": "2026-07-04T01:34:44.162Z",
+      "taskCount": 18,
+      "completedCount": 17,
+      "tags": [
+        "master"
+      ]
+    }
+  }
+}

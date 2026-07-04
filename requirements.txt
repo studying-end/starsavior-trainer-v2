@@ -1,0 +1,9 @@
+pillow
+pyautogui==0.9.54
+keyboard  # F9 暂停热键（cli/pause.py 运行时依赖，曾漏列于 requirements）
+rapidocr-onnxruntime==1.4.4
+onnxruntime-gpu==1.27.0
+numpy>=1.21.2,<2.0.0
+opencv-python==4.5.5.64
+flask==3.0.0
+flask-cors==4.0.0

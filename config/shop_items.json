@@ -1,0 +1,26 @@
+{
+  "schema": "starsavior.shop.v1",
+  "items": [
+    {
+      "name": "奶油义大利面",
+      "effect": "体力4增加",
+      "price": 20,
+      "classes": ["坦克","辅助"],
+      "priority": 4
+    },
+    {
+      "name": "集中训练的秘笈",
+      "effect": "专注训练经验值增加",
+      "price": 30,
+      "classes": [],
+      "priority": 99
+    },
+    {
+      "name": "牛肉排",
+      "effect": "韧性5增加 专注5增加",
+      "price": 30,
+      "classes": ["坦克","辅助"],
+      "priority": 4
+    }
+  ]
+}

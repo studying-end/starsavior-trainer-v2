@@ -1,0 +1,26 @@
+{
+  "schema": "starsavior.relics.v1",
+  "relics": [
+    {
+      "name": "沾有史莱姆的铠甲",
+      "effect_text": "首次战斗开始时，自身的最大生命力增加4%",
+      "attributes": [
+        "hp"
+      ]
+    },
+    {
+      "name": "沾有史莱姆的裤子",
+      "effect_text": "首次战斗开始时，自身的防御力增加6%",
+      "attributes": [
+        "defense"
+      ]
+    },
+    {
+      "name": "沾有史莱姆的手套",
+      "effect_text": "首次战斗开始时，自身的攻击力增加4%",
+      "attributes": [
+        "attack"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,234 @@
+"""采集训练选择画面中支援卡人头模板。
+
+从游戏训练选择画面截图 → 裁剪 5 张卡片区域 → 与现有模板库去重 →
+保存新头像至 config/assets/。
+
+用法：
+    python -m starsavior_trainer.tools.collect_head_templates --window-title "Star Savior"
+    
+    或者传入已有截图：
+    python -m starsavior_trainer.tools.collect_head_templates --image screenshots/training_select.png
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+# Force UTF-8 output on Windows
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+from PIL import Image
+
+# ── 项目模块 ──────────────────────────────────────────────────────────────
+# We do NOT import starsavior_trainer at the top level here, because we may
+# be running from a context where the package isn't on sys.path yet.
+# Instead, we resolve the project root and import inside main().
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent  # tools/../.. = project root
+
+
+def _import_project_modules():
+    """Lazy import starsavior_trainer modules (after ensuring project root is on sys.path)."""
+    import sys
+    if str(_PROJECT_ROOT) not in sys.path:
+        sys.path.insert(0, str(_PROJECT_ROOT))
+    # Now import
+    import starsavior_trainer.image_regions as ir
+    import starsavior_trainer.regions as reg
+    import starsavior_trainer.capture as cap
+    import importlib
+    return ir, reg, cap
+
+
+def _existing_template_ids(assets_dir: Path, prefix: str) -> set[int]:
+    """返回现有模板文件的序号集合，如 {1, 2, 3}。"""
+    ids: set[int] = set()
+    for f in assets_dir.glob(f"{prefix}_*.png"):
+        try:
+            stem = f.stem  # e.g. "counting_head_2"
+            num = int(stem.rsplit("_", 1)[-1])
+            ids.add(num)
+        except (ValueError, IndexError):
+            continue
+    return ids
+
+
+def _next_template_id(assets_dir: Path, prefix: str) -> int:
+    """返回下一个可用的序号。"""
+    ids = _existing_template_ids(assets_dir, prefix)
+    return max(ids) + 1 if ids else 1
+
+
+def _template_match_score(template: Image.Image, candidate: Image.Image) -> float:
+    """用 OpenCV TM_CCOEFF_NORMED 比较两张图，返回最大匹配分。"""
+    import cv2
+    import numpy as np
+
+    tpl = cv2.cvtColor(np.array(template.convert("RGB")), cv2.COLOR_RGB2BGR)
+    src = cv2.cvtColor(np.array(candidate.convert("RGB")), cv2.COLOR_RGB2BGR)
+
+    # 如果模板比候选图大，缩放模板
+    if tpl.shape[0] > src.shape[0] or tpl.shape[1] > src.shape[1]:
+        return 0.0
+
+    res = cv2.matchTemplate(src, tpl, cv2.TM_CCOEFF_NORMED)
+    return float(res.max())
+
+
+def _is_duplicate(candidate: Image.Image, assets_dir: Path, threshold: float = 0.93) -> tuple[bool, str | None]:
+    """检查 candidate 是否与 assets_dir 下某现有模板重复。
+    
+    返回 (是否重复, 匹配到的模板文件名或 None)。
+    阈值 0.93 > count_heads 的 0.85 阈值，比运行时更严——避免把不同的头误判为相同（漏存），
+    也避免贴近 0.85 导致同一颗头被两张模板同时命中、算成 2 颗。
+    """
+    for f in sorted(assets_dir.glob("counting_head_*.png")):
+        try:
+            tpl = Image.open(f)
+            score = _template_match_score(tpl, candidate)
+            if score > threshold:
+                return True, f.name
+        except Exception:
+            continue
+    for f in sorted(assets_dir.glob("non_counting_head_*.png")):
+        try:
+            tpl = Image.open(f)
+            score = _template_match_score(tpl, candidate)
+            if score > threshold:
+                return True, f.name
+        except Exception:
+            continue
+    return False, None
+
+
+def _crop_head_from_card(card_image: Image.Image) -> Image.Image:
+    """从训练卡区域中裁剪出支援卡头像（左侧圆形头像区域）。
+    
+    训练卡（2560x1440 下约 650x112）左侧是支援卡头像（圆形），
+    约占 112x112 像素（高度接近整卡）。现有模板尺寸约 110-143 像素，
+    我们整卡高度的宽裁剪，确保不漏掉头像边缘。
+    
+    注意：头像区域约从 y=0 到 y~112, x=0 到 x~112，所以取正方形即可。
+    """
+    cw, ch = card_image.size
+    # 头像占卡片全高，取正方形区域（约 112x112）
+    head_size = ch
+    if head_size > cw:
+        head_size = cw
+    return card_image.crop((0, 0, head_size, head_size))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="采集训练选择画面中的支援卡人头模板")
+    parser.add_argument("--window-title", default="Star Savior",
+                        help="游戏窗口标题（用于自动截图）")
+    parser.add_argument("--image", help="已有的训练选择画面截图（如提供则跳过截图步骤）")
+    parser.add_argument("--profile", default="config/regions/2560x1440.json",
+                        help="区域配置 JSON 文件路径（相对于项目根）")
+    parser.add_argument("--out-dir", default="screenshots/head_crops",
+                        help="裁剪预览输出目录")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="只裁剪预览不保存到模板库")
+    parser.add_argument("--match-threshold", type=float, default=0.93,
+                        help="去重模板匹配阈值（默认 0.93）")
+    parser.add_argument("--resize-crop", type=int, default=None,
+                        help="裁剪后统一缩放到此尺寸（如 64，可选）")
+    args = parser.parse_args()
+
+    # ── 加载项目模块 ──
+    ir, reg, cap = _import_project_modules()
+
+    # ── 获取截图 ──
+    if args.image:
+        print(f"[采集] 使用已有截图: {args.image}")
+        screenshot = Image.open(args.image)
+    else:
+        print(f"[采集] 正在截取游戏窗口 (标题包含: {args.window_title!r})...")
+        screenshot, winfo = cap.capture_window(args.window_title)
+        print(f"[采集] 截图成功: 窗口={winfo.title!r} {screenshot.size}")
+
+    # ── 加载区域配置 ──
+    profile_path = _PROJECT_ROOT / args.profile
+    print(f"[采集] 加载区域配置: {profile_path}")
+    profile = reg.load_region_profile(str(profile_path))
+    profile = reg.scale_region_profile(profile, screenshot.size)
+    print(f"[采集] 区域配置: {profile.name} {profile.resolution}, "
+          f"实际截图尺寸: {screenshot.size}")
+
+    # ── 需要裁剪的卡片区域 key ──
+    card_keys = [
+        ("power", "training_select_card_power"),
+        ("stamina", "training_select_card_stamina"),
+        ("guts", "training_select_card_guts"),
+        ("wisdom", "training_select_card_wisdom"),
+        ("speed", "training_select_card_speed"),
+    ]
+
+    # ── 准备输出目录（裁剪预览） ──
+    out_dir = Path(args.out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── 准备模板库目录 ──
+    assets_dir = _PROJECT_ROOT / "config" / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+
+    # ── 逐个卡片裁剪 ──
+    print(f"\n[采集] 开始裁剪 {len(card_keys)} 张卡片...")
+    new_saved = 0
+    skipped = 0
+
+    for attr_name, region_key in card_keys:
+        card_rect = profile.regions.get(region_key)
+        if card_rect is None:
+            print(f"  [跳过] {attr_name}: 区域 {region_key} 未在配置中找到")
+            continue
+
+        # 1. 裁剪整张卡
+        card_img = ir.crop_region(screenshot, card_rect)
+
+        # 2. 从头像区域裁剪出头像
+        head_img = _crop_head_from_card(card_img)
+        if head_img.size[0] < 20 or head_img.size[1] < 20:
+            print(f"  [跳过] {attr_name}: 头像裁剪太小 {head_img.size}")
+            continue
+
+        # 3. 可选统一缩放
+        if args.resize_crop:
+            head_img = head_img.resize((args.resize_crop, args.resize_crop), Image.LANCZOS)
+
+        # 4. 保存裁剪预览
+        preview_path = out_dir / f"{attr_name}.png"
+        head_img.save(preview_path)
+
+        # 5. 去重检查
+        is_dup, matched_file = _is_duplicate(head_img, assets_dir, args.match_threshold)
+        if is_dup:
+            print(f"  [跳过] {attr_name}: 与现有模板重复 ({matched_file})")
+            skipped += 1
+            continue
+
+        # 6. 保存新模板
+        if args.dry_run:
+            print(f"  [预览] {attr_name}: 新头像 (dry-run, 不保存) → {preview_path}")
+            continue
+
+        next_id = _next_template_id(assets_dir, "counting_head")
+        save_path = assets_dir / f"counting_head_{next_id}.png"
+        head_img.save(save_path)
+        print(f"  [保存] {attr_name}: 新头像 #{next_id} → {save_path}")
+        new_saved += 1
+
+    # ── 汇总 ──
+    print(f"\n[采集] 完成!")
+    print(f"  现有模板: {len(list(assets_dir.glob('counting_head_*.png')))} 个 counting_head")
+    print(f"  本次新增: {new_saved}")
+    print(f"  跳过(重复): {skipped}")
+    print(f"  裁剪预览: {out_dir.resolve()}")
+    if new_saved > 0:
+        print(f"  提示: 下一帧即生效，无需重启 (count_heads 每次调用动态扫描模板目录)")
+
+
+if __name__ == "__main__":
+    main()

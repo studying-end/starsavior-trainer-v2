@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Protocol
+
+from starsavior_trainer.models import Action, Rect
+
+
+@dataclass(frozen=True)
+class ExecutionResult:
+    executed: bool
+    kind: str
+    point: tuple[int, int] | None
+    reason: str
+
+
+class ActionExecutor(Protocol):
+    def execute(self, action: Action) -> ExecutionResult:
+        raise NotImplementedError
+
+
+class DryRunExecutor:
+    def execute(self, action: Action) -> ExecutionResult:
+        point = _click_point(action.target)
+        return ExecutionResult(
+            executed=False,
+            kind=action.kind,
+            point=point,
+            reason=f"dry run: {action.reason}",
+        )
+
+
+class PyAutoGuiExecutor:
+    def __init__(self, move_duration: float = 0.05):
+        try:
+            import pyautogui
+        except ImportError as exc:
+            raise RuntimeError("pyautogui is not installed") from exc
+
+        self._pyautogui = pyautogui
+        self._move_duration = move_duration
+
+        # Emergency stop: slam the mouse into ANY screen corner to abort the bot.
+        # This is the only "reclaim control" path that survives a focused,
+        # higher-privilege game window — the F9/F12 keyboard hotkey relies on a
+        # global keyboard hook that a low-privilege python can't receive while an
+        # admin/Steam window has focus. FAILSAFE is pure cursor-position polling
+        # inside our own process, so it fires regardless of focus or privilege.
+        pyautogui.FAILSAFE = True
+        try:
+            width, height = pyautogui.size()
+            pyautogui.FAILSAFE_POINTS = [
+                (0, 0),
+                (width - 1, 0),
+                (0, height - 1),
+                (width - 1, height - 1),
+            ]
+        except Exception:
+            # size() can fail on a headless host — keep pyautogui's default
+            # top-left (0, 0) failsafe point rather than crash.
+            pass
+
+    def execute(self, action: Action) -> ExecutionResult:
+        if action.kind not in ("click", "move", "scroll"):
+            return ExecutionResult(False, action.kind, None, f"not executable action: {action.reason}")
+        point = _click_point(action.target)
+        if point is None:
+            return ExecutionResult(False, action.kind, None, f"{action.kind} action missing target: {action.reason}")
+
+        if action.kind == "move":
+            self._hover_move(point)
+            return ExecutionResult(True, action.kind, point, action.reason)
+        self._pyautogui.moveTo(point[0], point[1], duration=self._move_duration)
+        if action.kind == "scroll":
+            self._drag_scroll(point, action.scroll_clicks)
+            return ExecutionResult(True, action.kind, point, action.reason)
+        # repeat > 1 turns the click into a rapid burst for "tap to continue /
+        # skip" advance screens (reward popup, dialogue, post-training) so we
+        # don't crawl one click per loop iteration.
+        repeat = max(1, action.repeat)
+        self._pyautogui.click()
+        if repeat > 1:
+            import time
+
+            for _ in range(repeat - 1):
+                time.sleep(0.18)  # ~5 Hz burst — calm enough not to over-click / overshoot
+                self._pyautogui.click()
+        return ExecutionResult(True, action.kind, point, action.reason)
+
+    def _hover_move(self, point: tuple[int, int]) -> None:
+        """Move so the game registers a HOVER (refreshes the right detail panel).
+
+        pyautogui's moveTo uses SetCursorPos (a teleport) which this game doesn't
+        treat as motion — so the hovered card's sub-blessings never show. We slide
+        in with relative mouse_event moves (real motion), then dwell so the detail
+        panel updates before the next capture reads it.
+        """
+        import ctypes
+        import time
+
+        MOUSEEVENTF_MOVE = 0x0001
+        user32 = ctypes.windll.user32
+        tx, ty = int(point[0]), int(point[1])
+        user32.SetCursorPos(tx - 60, ty)  # start left of the target
+        time.sleep(0.05)
+        for _ in range(12):  # slide right into the target -> real motion events
+            user32.mouse_event(MOUSEEVENTF_MOVE, 5, 0, 0, 0)
+            time.sleep(0.015)
+        user32.SetCursorPos(tx, ty)  # land exactly on the target
+        time.sleep(0.4)  # dwell so the hovered card's detail panel refreshes
+
+    def _drag_scroll(self, anchor: tuple[int, int], clicks: int, pixels: int = 380, steps: int = 25) -> None:
+        """Scroll a list with a real press-hold-drag.
+
+        This game ignores synthetic mouse-wheel events, so we drag instead. We
+        use low-level ``mouse_event`` (not pyautogui) because pyautogui moves the
+        cursor with SetCursorPos, which produces no real motion trace — the game
+        then reads the gesture as a plain click rather than a drag. Sending
+        relative MOUSEEVENTF_MOVE deltas while the left button is held gives a
+        genuine drag the game accepts.
+
+        ``clicks < 0`` means "scroll down" (look further down the list) → drag the
+        content upward; ``clicks > 0`` drags downward.
+        """
+        import ctypes
+        import time
+
+        MOUSEEVENTF_MOVE = 0x0001
+        MOUSEEVENTF_LEFTDOWN = 0x0002
+        MOUSEEVENTF_LEFTUP = 0x0004
+        user32 = ctypes.windll.user32
+
+        dy_total = -pixels if clicks < 0 else pixels
+        user32.SetCursorPos(int(anchor[0]), int(anchor[1]))
+        time.sleep(0.1)
+        user32.mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)
+        time.sleep(0.18)  # hold before moving so the game registers a press, not a tap
+        step_dy = int(dy_total / steps) or (-1 if dy_total < 0 else 1)
+        for _ in range(steps):
+            user32.mouse_event(MOUSEEVENTF_MOVE, 0, step_dy, 0, 0)
+            time.sleep(0.008)
+        time.sleep(0.12)
+        user32.mouse_event(MOUSEEVENTF_LEFTUP, 0, 0, 0, 0)
+        time.sleep(0.05)
+        # Snap the cursor back to the anchor so repeated drags don't walk it out
+        # of the game window (each drag moves relatively from the current point).
+        user32.SetCursorPos(int(anchor[0]), int(anchor[1]))
+
+
+def map_action_to_rect(action: Action, source_resolution: tuple[int, int], dest_rect: Rect) -> Action:
+    """Map an action target from screenshot coordinates into a screen rectangle."""
+    if action.target is None:
+        return action
+
+    source_width, source_height = source_resolution
+    scale_x = dest_rect.width / source_width
+    scale_y = dest_rect.height / source_height
+    target = action.target
+    return Action(
+        kind=action.kind,
+        target=Rect(
+            dest_rect.x + round(target.x * scale_x),
+            dest_rect.y + round(target.y * scale_y),
+            max(round(target.width * scale_x), 1),
+            max(round(target.height * scale_y), 1),
+        ),
+        reason=action.reason,
+        confidence=action.confidence,
+        scroll_clicks=action.scroll_clicks,
+        repeat=action.repeat,
+    )
+
+
+def _click_point(rect: Rect | None) -> tuple[int, int] | None:
+    if rect is None:
+        return None
+    return rect.center

@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Starsavior Trainer - Web 控制台</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎮 Starsavior Trainer</h1>
+            <p class="subtitle">Web 控制台</p>
+        </header>
+
+        <div class="tabs">
+            <button class="tab-btn active" data-tab="train">训练循环</button>
+            <button class="tab-btn" data-tab="capture">截图/窗口</button>
+            <button class="tab-btn" data-tab="calibrate">区域标定/OCR</button>
+            <button class="tab-btn" data-tab="offline">离线测试</button>
+            <button class="tab-btn" data-tab="tests">单元测试</button>
+            <button class="tab-btn" data-tab="logs">日志查看</button>
+        </div>
+
+        <!-- 训练循环 Tab -->
+        <div class="tab-content active" id="train-tab">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="window-title">窗口标题:</label>
+                    <input type="text" id="window-title" value="StarSavior">
+                </div>
+
+                <div class="form-group">
+                    <label for="interval">间隔(秒):</label>
+                    <input type="number" id="interval" value="2.0" step="0.1" min="0.5">
+                </div>
+
+                <div class="form-group">
+                    <label for="max-rounds">最大轮次:</label>
+                    <input type="number" id="max-rounds" value="" placeholder="不限制">
+                </div>
+
+                <div class="form-group">
+                    <label for="profile">区域配置:</label>
+                    <select id="profile"></select>
+                </div>
+
+                <div class="form-group">
+                    <label for="character">目标角色:</label>
+                    <select id="character">
+                        <option value="">-- 选择角色 --</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="build-profile">培养方向:</label>
+                    <select id="build-profile"></select>
+                </div>
+
+                <div class="form-group">
+                    <label for="classify-mode">识别模式:</label>
+                    <select id="classify-mode"></select>
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <label>
+                        <input type="checkbox" id="execute-clicks">
+                        执行点击（不勾选为预演模式）
+                    </label>
+                </div>
+            </div>
+
+            <h3 class="section-title">旅程启动配置</h3>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="journey-difficulty">旅程难度:</label>
+                    <select id="journey-difficulty">
+                        <option value="简单">简单</option>
+                        <option value="一般" selected>一般</option>
+                        <option value="困难">困难</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="seal-slot1">刻印槽1:</label>
+                    <select id="seal-slot1">
+                        <option value="1" selected>第1个（自动装备）</option>
+                        <option value="2">第2个</option>
+                        <option value="3">第3个</option>
+                        <option value="4">第4个</option>
+                        <option value="5">第5个</option>
+                        <option value="6">第6个</option>
+                        <option value="7">第7个</option>
+                        <option value="8">第8个</option>
+                        <option value="9">第9个</option>
+                        <option value="10">第10个</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="seal-slot2">刻印槽2:</label>
+                    <select id="seal-slot2">
+                        <option value="1" selected>第1个（自动装备）</option>
+                        <option value="2">第2个</option>
+                        <option value="3">第3个</option>
+                        <option value="4">第4个</option>
+                        <option value="5">第5个</option>
+                        <option value="6">第6个</option>
+                        <option value="7">第7个</option>
+                        <option value="8">第8个</option>
+                        <option value="9">第9个</option>
+                        <option value="10">第10个</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="support-card-group">支援卡组:</label>
+                    <select id="support-card-group">
+                        <option value="1" selected>卡组1</option>
+                        <option value="2">卡组2</option>
+                        <option value="3">卡组3</option>
+                        <option value="4">卡组4</option>
+                        <option value="5">卡组5</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="friend-name">好友名称（可选）:</label>
+                    <input type="text" id="friend-name" placeholder="留空则不选择好友卡">
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="startTraining()">🚀 一键启动（旅程 + 训练）</button>
+                <button class="btn btn-success" onclick="startJourney()">🎯 仅启动旅程</button>
+                <button class="btn btn-secondary" onclick="reloadCharacters()">🔄 重载角色名册</button>
+            </div>
+
+            <div class="info-text" style="margin-top: 15px;">
+                <strong>💡 提示：</strong>
+                <ul style="margin: 8px 0 0 20px; line-height: 1.8;">
+                    <li><strong>一键启动</strong>：从游戏主界面自动进入旅程，然后开始训练循环</li>
+                    <li><strong>仅启动旅程</strong>：只执行旅程启动流程，不启动训练循环</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- 截图/窗口 Tab -->
+        <div class="tab-content" id="capture-tab">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="capture-window-title">窗口标题:</label>
+                    <input type="text" id="capture-window-title" value="StarSavior">
+                </div>
+
+                <div class="form-group">
+                    <label for="output-path">输出路径:</label>
+                    <input type="text" id="output-path" value="./screenshots/capture.png">
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <label>
+                        <input type="checkbox" id="timestamp">
+                        添加时间戳
+                    </label>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="captureScreenshot()">📸 截图</button>
+                <button class="btn btn-secondary" onclick="listWindows()">🪟 列出窗口</button>
+            </div>
+        </div>
+
+        <!-- 区域标定/OCR Tab -->
+        <div class="tab-content" id="calibrate-tab">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="calibrate-image">图片路径:</label>
+                    <input type="text" id="calibrate-image" placeholder="./screenshots/capture.png">
+                </div>
+
+                <div class="form-group">
+                    <label for="calibrate-profile">区域配置:</label>
+                    <select id="calibrate-profile"></select>
+                </div>
+
+                <div class="form-group">
+                    <label for="ocr-engine">OCR 引擎:</label>
+                    <select id="ocr-engine">
+                        <option value="paddle">Paddle OCR</option>
+                        <option value="noop">Noop (无 OCR)</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="region-prefix">区域前缀:</label>
+                    <input type="text" id="region-prefix" placeholder="留空读取全部">
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="cropRegions()">✂️ 裁剪区域</button>
+                <button class="btn btn-secondary" onclick="readRegions()">📖 读取 OCR</button>
+            </div>
+        </div>
+
+        <!-- 离线测试 Tab -->
+        <div class="tab-content" id="offline-tab">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="offline-profile">区域配置:</label>
+                    <select id="offline-profile"></select>
+                </div>
+
+                <div class="form-group">
+                    <label for="manifest-path">Manifest 路径:</label>
+                    <input type="text" id="manifest-path" placeholder="./examples/demo_manifest.json">
+                </div>
+
+                <div class="form-group checkbox-group">
+                    <label>
+                        <input type="checkbox" id="jsonl-output">
+                        JSONL 输出
+                    </label>
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="runOfflineDemo()">🎬 运行 Demo</button>
+                <button class="btn btn-secondary" onclick="runOfflineManifest()">📋 运行 Manifest</button>
+            </div>
+        </div>
+
+        <!-- 单元测试 Tab -->
+        <div class="tab-content" id="tests-tab">
+            <p class="info-text">运行项目的所有单元测试（148 个测试）</p>
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="runTests()">🧪 运行测试</button>
+            </div>
+        </div>
+
+        <!-- 日志查看 Tab -->
+        <div class="tab-content" id="logs-tab">
+            <div class="form-group">
+                <label for="log-file-select">选择日志文件:</label>
+                <select id="log-file-select" onchange="loadLogFile()">
+                    <option value="">-- 选择日志文件 --</option>
+                </select>
+                <button class="btn btn-secondary" onclick="refreshLogList()" style="margin-left: 10px;">🔄 刷新列表</button>
+            </div>
+
+            <div class="log-viewer">
+                <div class="log-viewer-header">
+                    <span id="log-viewer-info">请选择日志文件</span>
+                    <button class="btn btn-small" onclick="downloadCurrentLog()">⬇ 下载</button>
+                </div>
+                <pre class="log-viewer-content" id="log-viewer-content">暂无内容</pre>
+            </div>
+        </div>
+
+        <!-- 控制栏 -->
+        <div class="control-bar">
+            <button class="btn btn-danger" id="stop-btn" onclick="stopProcess()" disabled>■ 停止当前进程</button>
+            <button class="btn btn-secondary" onclick="clearLogs()">🗑️ 清空日志</button>
+            <span class="status" id="status">就绪</span>
+        </div>
+
+        <!-- 日志区域 -->
+        <div class="log-container">
+            <div class="log-header">
+                <h3>日志</h3>
+                <span class="log-info" id="log-info">等待操作...</span>
+            </div>
+            <div class="log-content" id="log-content"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
