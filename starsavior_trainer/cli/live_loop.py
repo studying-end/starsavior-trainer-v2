@@ -104,6 +104,7 @@ def main() -> None:
     parser.add_argument("--hybrid-mode", action="store_true", help="Blue-button classification + OCR payload reading.")
     parser.add_argument("--list-windows", action="store_true", help="List windows and exit.")
     parser.add_argument("--verbose", action="store_true", help="Print OCR/color results for each region.")
+    parser.add_argument("--debug", action="store_true", help="调试模式：每帧详细日志(识别payload+决策)。正常模式不加载该日志系统，零开销。")
     parser.add_argument("--character", default=None, help="Desired character name (Chinese), e.g. 克莱儿.")
     parser.add_argument(
         "--variant",
@@ -147,6 +148,12 @@ def main() -> None:
     print(f"character_class={state.character_class or '(unknown)'}")
     round_tracker = RoundTracker()
     executor = PyAutoGuiExecutor() if args.execute else DryRunExecutor()
+    # --debug 模式才加载详细日志系统（正常模式不 import，零开销）。详见 debug_log.py。
+    debug_log = None
+    if args.debug:
+        from starsavior_trainer import debug_log as _debug_log
+        debug_log = _debug_log
+        print("[调试模式] 每帧详细日志已启用（识别 payload + 决策 Action）")
     ocr = _create_ocr(args.use_paddle, args.ocr_engine)
     blue_detector = BlueButtonDetector() if (args.blue_mode or args.hybrid_mode) else None
 
@@ -301,6 +308,8 @@ def main() -> None:
                     state = replace(state, character_rank=rank_num)
             state = replace(state, current_round=round_tracker.current_round)
             print(f"  current_round={round_tracker.current_round}")
+            if debug_log:
+                debug_log.dump_observation(observation)
 
             # Decide
             action = None
@@ -367,6 +376,8 @@ def main() -> None:
                 last_character_click_target = None
             logger.info(f"decision: {action.kind} target={action.target} reason={action.reason}")
             narrate(f"[决策] {action.kind} → {action.target} | 理由: {action.reason}")
+            if debug_log:
+                debug_log.dump_decision(action)
             screen_action = map_action_to_rect(action, screenshot.size, client_window.rect)
             if action.target is not None:
                 print(f"  screen_target={screen_action.target}")
