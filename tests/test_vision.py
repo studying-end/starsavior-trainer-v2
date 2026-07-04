@@ -7,6 +7,7 @@ from starsavior_trainer.vision import (
     RingColorDetector,
     count_heads,
     estimate_endurance_ratio,
+    _is_bond_maxed,
 )
 from starsavior_trainer.models import Rect
 
@@ -53,6 +54,20 @@ class VisionTest(unittest.TestCase):
     def test_estimate_endurance_ratio_full_bar_near_one(self) -> None:
         img = Image.new("RGB", (100, 10), (40, 150, 100))  # 全填充
         self.assertGreater(estimate_endurance_ratio(img, Rect(0, 0, 100, 10)), 0.95)
+
+    def test_is_bond_maxed_yellow_bar_returns_true(self) -> None:
+        # §22.5: 人头(100x100)下方进度条黄色(BGR 0,215,255) → 羁绊达标 True。
+        import numpy as np
+        img = np.zeros((150, 110, 3), dtype=np.uint8)
+        img[105:120, 5:105] = (0, 215, 255)
+        self.assertTrue(_is_bond_maxed(img, (0, 0), 100, 100))
+
+    def test_is_bond_maxed_non_yellow_bar_returns_false(self) -> None:
+        # 蓝/灰色进度条 → 未达标 False。
+        import numpy as np
+        img = np.zeros((150, 110, 3), dtype=np.uint8)
+        img[105:120, 5:105] = (200, 100, 50)  # 蓝色
+        self.assertFalse(_is_bond_maxed(img, (0, 0), 100, 100))
 
     def test_blue_button_detector_ignores_grey_button(self) -> None:
         image = Image.new("RGB", (100, 40), (70, 70, 70))

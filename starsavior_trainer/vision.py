@@ -298,6 +298,31 @@ def _is_head_template(path) -> bool:
 
 _HEAD_MATCH_THRESHOLD = 0.85
 
+# 羁绊达标(人头下方进度条变黄)检测: 黄色 HSV 范围 + 占比阈值(§22.5)。CV 实测达标进度条
+# 在人头下方 +3~+20px, 黄色像素占比 ~34%。
+_BOND_YELLOW_HSV_MIN = (20, 90, 90)
+_BOND_YELLOW_HSV_MAX = (35, 255, 255)
+_BOND_MAXED_YELLOW_RATIO = 0.20
+
+
+def _is_bond_maxed(img_bgr, head_loc, tpl_w: int, tpl_h: int) -> bool:
+    """支援卡人头下方羁绊进度条是否黄色(达标)。达标的人头不计入作数(count_heads 跳过),
+    从而 decide_early_game 优先未达标支援卡所在训练——让全员尽快达标触发闪光训练(大量训练值)。
+    进度条在人头正下方 +3~+20px。详见 设计方案 §22.5。"""
+    try:
+        import cv2
+
+        x, y = head_loc
+        bar = img_bgr[y + tpl_h + 3 : y + tpl_h + 20, max(0, x - 5) : x + tpl_w + 5]
+        if bar.size == 0:
+            return False
+        hsv = cv2.cvtColor(bar, cv2.COLOR_BGR2HSV)
+        yellow = cv2.inRange(hsv, _BOND_YELLOW_HSV_MIN, _BOND_YELLOW_HSV_MAX)
+        return float((yellow > 0).mean()) > _BOND_MAXED_YELLOW_RATIO
+    except Exception as e:
+        logger.debug(f"[_is_bond_maxed] bond check failed: {e}")
+        return False
+
 
 def count_heads(image: Image.Image, search_region: Rect | None = None) -> int:
     """数训练选择画面里"作数"支援卡人头(早期游戏选人头最多的训练)。
@@ -329,7 +354,11 @@ def count_heads(image: Image.Image, search_region: Rect | None = None) -> int:
                 continue
             res = cv2.matchTemplate(search, tpl, cv2.TM_CCOEFF_NORMED)
             if float(res.max()) > _HEAD_MATCH_THRESHOLD:
-                count += 1
+                _, _, _, loc = cv2.minMaxLoc(res)
+                # §22.5: 羁绊达标(下方进度条变黄)的人头不计入作数 → decide_early_game
+                # 优先未达标支援卡所在训练, 让全员尽快达标触发闪光训练。
+                if not _is_bond_maxed(search, loc, tpl.shape[1], tpl.shape[0]):
+                    count += 1
         return count
     except Exception as e:
         logger.debug(f"[count_heads] head count failed: {e}")
