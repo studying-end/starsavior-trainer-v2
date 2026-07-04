@@ -60,6 +60,7 @@ from starsavior_trainer.models import (
     BlessingChoice,
     CommissionChoice,
     GameState,
+    GoalDialogStatus,
     Observation,
     Rect,
     Screen,
@@ -300,12 +301,25 @@ def main() -> None:
             # when a new journey is being set up (initial / character select).
             if observation.screen in (Screen.INITIAL, Screen.CHARACTER_SELECT):
                 round_tracker.reset()
+                policy._needs_goal_round = True  # §22.9 旅程首次必读 N/45 校准
             if observation.screen == Screen.TRAINING_HUB and isinstance(observation.payload, TrainingHubStatus):
+                prev_round = round_tracker.current_round
                 round_tracker.observe_date(observation.payload.turn_label)
+                # §22.9: 日期变化(回合+1)→ 标记需要读目标弹窗 N/45 校准(日期计数不准)。
+                if round_tracker.current_round != prev_round:
+                    policy._needs_goal_round = True
                 # 从大厅 "RANK 21" 读角色综合等级 → 委托选阶用(选建议等级≤它的最高阶)。
                 rank_num = parse_first_int(observation.payload.rank_label or "")
                 if rank_num is not None:
                     state = replace(state, character_rank=rank_num)
+            # §22.9: 目标弹窗 → 读 N/45 用绝对回合数校准 round_tracker(比日期计数准)。
+            if (
+                observation.screen == Screen.GOAL_DIALOG
+                and isinstance(observation.payload, GoalDialogStatus)
+                and observation.payload.round is not None
+            ):
+                round_tracker.set_round(observation.payload.round)
+                print(f"  [回合校准] 目标弹窗 N/45={observation.payload.round}")
             state = replace(state, current_round=round_tracker.current_round)
             print(f"  current_round={round_tracker.current_round}")
             if debug_log:

@@ -258,6 +258,14 @@ class ConfirmDialog:
 
 
 @dataclass(frozen=True)
+class GoalDialogStatus:
+    """目标弹窗(旅程信息)解析结果。N/45 的 N = 绝对回合数, 校准 RoundTracker。"""
+    round: int | None
+    close_button: Rect | None = None
+    title: str = ""
+
+
+@dataclass(frozen=True)
 class EventFastForwardSetting:
     no_fast_forward_option: Rect
     watched_only_option: Rect
@@ -299,6 +307,8 @@ class TrainingHubStatus:
     rest_button: Rect | None = None
     skill_button: Rect | None = None
     shop_button: Rect | None = None
+    # 左上角"目标"按钮(点开旅程信息弹窗读 N/45 校准回合数, §22.9)。None = region 未配置。
+    goal_button: Rect | None = None
     # D-DAY 评鉴战日大厅: 这俩按钮取代平时的 训练/委托/休息(评鉴战上、交易下)。
     rating_battle_button: Rect | None = None
     trading_button: Rect | None = None

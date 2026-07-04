@@ -52,6 +52,7 @@ _FAST_ANCHORS: tuple[str, ...] = (
     "reward_title",
     "game_menu_anchor_title",
     "game_menu_observe_marker",
+    "goal_dialog_anchor_title",
     "region_move_anchor_title",
     "region_move_station_title",
 )

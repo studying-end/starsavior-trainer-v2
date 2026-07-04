@@ -159,6 +159,13 @@ def _has_game_menu_signature(anchors: dict[str, str]) -> bool:
     )
 
 
+def _has_goal_dialog_signature(anchors: dict[str, str]) -> bool:
+    # 目标弹窗(§22.9): "旅程信息"标题独有, 与背景大厅(只显示"距离目标")消歧。
+    # priority=2 早检查, 否则弹窗背景大厅文字会让 TRAINING_HUB(priority=8) 抢走。
+    title = anchors.get("goal_dialog_anchor_title", "")
+    return contains_any_text(title, ("旅程信息", "旅程", "程信息"))
+
+
 def _has_training_select_signature(anchors: dict[str, str]) -> bool:
     # 统计多少卡槽读到训练名(坑 #3): 真训练有 5 张, D-DAY 商店只卖 1 张「保护训练的秘笈」。
     # 要求 ≥2 张匹配, 避免商店被误判 TRAINING_SELECT 导致检视器死循环。

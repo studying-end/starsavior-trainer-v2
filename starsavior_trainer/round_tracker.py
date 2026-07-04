@@ -44,3 +44,10 @@ class RoundTracker:
             self._last_date = canonical
             self._round += 1
         return self.current_round
+
+    def set_round(self, n: int) -> None:
+        """用目标弹窗 N/45 的绝对回合数校准(§22.9)。N/45 比日期计数准(日期同旬漏计/
+        OCR 丢月份跳帧), 故读到 N 时直接覆盖 _round。保留 observe_date 作 fallback
+        (目标弹窗没读到时仍能靠日期计数兜底)。"""
+        if isinstance(n, int) and n > 0:
+            self._round = n

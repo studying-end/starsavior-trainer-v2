@@ -97,6 +97,7 @@ def parse_training_hub(
         rest_button=profile.regions.get("training_hub_action_rest"),
         skill_button=profile.regions.get("training_hub_nav_potential"),
         shop_button=profile.regions.get("training_hub_action_shop"),
+        goal_button=profile.regions.get("goal_button"),
         has_commission_alert=has_commission_alert,
         has_shop_alert=has_shop_alert,
         can_learn_skill=can_learn_skill,

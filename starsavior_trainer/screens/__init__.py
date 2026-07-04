@@ -14,6 +14,7 @@ from starsavior_trainer.classifier_signatures import (
     _has_dialogue_signature,
     _has_event_choice_signature,
     _has_game_menu_signature,
+    _has_goal_dialog_signature,
     _has_initial_signature,
     _has_post_training_signature,
     _has_region_move_signature,
@@ -34,6 +35,7 @@ from starsavior_trainer.models import (
     DialogueScene,
     EventFastForwardSetting,
     EventOption,
+    GoalDialogStatus,
     JourneyStart,
     Rect,
     RelicChoice,
@@ -53,6 +55,7 @@ from starsavior_trainer.screens.blessing import parse_blessing_choice, parse_ble
 from starsavior_trainer.screens.character_select import parse_character_select
 from starsavior_trainer.screens.commission import parse_commission_select
 from starsavior_trainer.screens.event import parse_event_choice
+from starsavior_trainer.screens.goal_dialog import parse_goal_dialog
 from starsavior_trainer.screens.region_move import parse_region_move
 from starsavior_trainer.screens.relic import parse_relic_choice
 from starsavior_trainer.screens.rest import parse_rest_submenu
@@ -143,6 +146,11 @@ def _decide_training_hub(obs, state, policy):
             policy._needs_rest = False
             if obs.payload.rest_button is not None:
                 return Action("click", obs.payload.rest_button, "low stamina (all training too risky), rest")
+        # §22.9: 需要校准回合数时, 优先点"目标"按钮打开弹窗读 N/45。
+        # _needs_goal_round 由 live_loop 在旅程首次进大厅 / 日期变化时置 True。
+        if getattr(policy, "_needs_goal_round", False) and obs.payload.goal_button is not None:
+            policy._needs_goal_round = False
+            return Action("click", obs.payload.goal_button, "hub: 点目标按钮读 N/45 校准回合数")
         if obs.payload.has_commission_alert and obs.payload.commission_button is not None:
             return Action("click", obs.payload.commission_button, "training hub, commission alert")
         if obs.payload.has_shop_alert and obs.payload.shop_button is not None:
@@ -247,6 +255,19 @@ def _decide_reward(obs, state, policy):
         policy.config.reward_continue_button,
         "reward obtained (获得奖励), click 点击以继续 to advance",
     )
+
+
+def _decide_goal_dialog(obs, state, policy):
+    # 目标弹窗(§22.9): 读 N/45 校准回合数后, 点 ✕ 关闭回大厅。
+    # payload.round 由 live_loop 在本函数返回前已写回 state(见 live_loop GOAL_DIALOG 分支),
+    # 这里只负责关闭弹窗。
+    if isinstance(obs.payload, GoalDialogStatus) and obs.payload.close_button is not None:
+        return Action(
+            "click",
+            obs.payload.close_button,
+            f"goal dialog (round={obs.payload.round}), click ✕ to close",
+        )
+    return Action("pause", None, "goal dialog, no close button")
 
 
 def _parse_event_choice_combined(region_texts, profile):
@@ -357,6 +378,13 @@ HANDLERS: dict[Screen, DelegatingScreenHandler] = {
         Screen.GAME_MENU, _decide_game_menu, priority=2,
         anchor_fn=_has_game_menu_signature, anchor_confidence=1.0,
         parse_fn=None, ocr_prefixes=None,
+    ),
+    # 目标弹窗(§22.9): 读 N/45 校准回合数。priority=2 早检查(弹窗背景是大厅,
+    # 晚检查会被 TRAINING_HUB priority=8 抢走, 同 GAME_MENU/REWARD)。
+    Screen.GOAL_DIALOG: DelegatingScreenHandler(
+        Screen.GOAL_DIALOG, _decide_goal_dialog, priority=2,
+        anchor_fn=_has_goal_dialog_signature, anchor_confidence=1.0,
+        parse_fn=parse_goal_dialog, ocr_prefixes=("goal_dialog",),
     ),
 }
 

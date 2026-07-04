@@ -100,6 +100,7 @@ ANCHOR_REGIONS_BY_SCREEN: dict[Screen, list[str]] = {
     ],
     Screen.RELIC_CHOICE: ["relic_choice_title"],
     Screen.REWARD: ["reward_title"],
+    Screen.GOAL_DIALOG: ["goal_dialog_anchor_title"],
     Screen.COMMISSION_SELECT: [
         "commission_select_anchor_title",
         "commission_select_option_1_name",
@@ -151,6 +152,7 @@ ANCHOR_TEXT_BY_SCREEN: dict[Screen, tuple[str, ...]] = {
     Screen.EVENT_CHOICE: ("旅程事件", "事件"),
     Screen.RELIC_CHOICE: ("选择奖励",),
     Screen.REWARD: ("获得奖励",),
+    Screen.GOAL_DIALOG: ("旅程信息", "目标"),
     Screen.COMMISSION_SELECT: ("委托",),
     Screen.SHOP: ("购买",),
     Screen.BATTLE: ("跳过战斗", "评鉴战", "战斗", "接受"),

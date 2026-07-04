@@ -75,6 +75,9 @@ class TrainerPolicy(
         self._dday_trading_done: bool = False
         # D-DAY 评鉴战日: 是否已点过评鉴战按钮(避免返回大厅后 OCR 仍命中 评鉴战 文字 → 死循环)。
         self._dday_rating_done: bool = False
+        # §22.9: 需要读目标弹窗 N/45 校准回合数。live_loop 在旅程首次进大厅 / 日期变化时置 True,
+        # _decide_training_hub 见此标志优先点 goal_button → 下帧 GOAL_DIALOG 读 N/45。
+        self._needs_goal_round: bool = False
 
     def decide(self, state: GameState, observation: Observation) -> Action:
         if observation.confidence < self.config.min_screen_confidence:

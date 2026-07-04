@@ -41,7 +41,9 @@ def estimate_endurance_ratio(image: Image.Image, rect: Rect) -> float:
         return 0.0
     r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
     green = (g > 60) & ((g - r > 30) | (g - b > 30))
-    col_has_green = green.any(axis=0)
+    # 列绿像素占比 > 40% 才算该列"绿"——抗分散背景绿（旧 col.any 把背景零星绿多算成满，
+    # 实测 flash_now/当前帧 col.any=100% 但实际耐力 82%/67%）。col.mean>0.4 修正。
+    col_has_green = green.mean(axis=0) > 0.4
     width = arr.shape[1]
     if width == 0 or not col_has_green.any():
         return 0.0
