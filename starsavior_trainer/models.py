@@ -33,6 +33,10 @@ class Screen(str, Enum):
     # end the run if clicked — so we must recognise it and click ✕ to close, never
     # the generic "click centre to advance" fallback.
     GAME_MENU = "game_menu"
+    # "旅程信息"目标弹窗: 点大厅左上角"目标"二字打开, 显示当前回合 N/45 (绝对回合数)。
+    # 用 N 校准 RoundTracker 的日期计数(日期计数不准: 同旬漏计/OCR 丢月份跳帧)。
+    # priority=2 早检查(弹窗背景是大厅, 晚检查会被 TRAINING_HUB priority=8 抢走)。
+    GOAL_DIALOG = "goal_dialog"
     UNKNOWN = "unknown"
 
 
@@ -79,6 +83,11 @@ class TrainingChoice:
     # Top-left back arrow, used to leave TRAINING_SELECT back to the hub when every
     # training's fail rate is too high (so the hub-level decision can choose rest).
     back_button: Rect | None = None
+    # §22.1: 耐力(训练资源)条填充比例(0.0-1.0)，SELECT 顶部 HUD 读（绿=当前耐力，
+    # 灰=训练消耗预览，CV 绿前缀排除灰）。画面级，每卡同值。0.0=未读到。
+    endurance_ratio: float = 0.0
+    # §22.6: 该训练卡是否闪光（金黄，大量训练值）；CV 检测卡金黄背景/边框（detect_flash_card）。
+    is_flash: bool = False
 
 
 @dataclass(frozen=True)

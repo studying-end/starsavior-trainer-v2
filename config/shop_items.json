@@ -5,7 +5,10 @@
       "name": "奶油义大利面",
       "effect": "体力4增加",
       "price": 20,
-      "classes": ["坦克","辅助"],
+      "classes": [
+        "坦克",
+        "辅助"
+      ],
       "priority": 4
     },
     {
@@ -19,8 +22,28 @@
       "name": "牛肉排",
       "effect": "韧性5增加 专注5增加",
       "price": 30,
-      "classes": ["坦克","辅助"],
+      "classes": [
+        "坦克",
+        "辅助"
+      ],
       "priority": 4
+    },
+    {
+      "name": "活力药水",
+      "effect": "可在特定事件中使用",
+      "price": 50,
+      "classes": [],
+      "priority": 0
+    },
+    {
+      "name": "手暖炉",
+      "effect": "每回合开始时,自身所受伤害量减少 1%。最多可叠加5次。 潜质点数8退还",
+      "price": 50,
+      "classes": [
+         "坦克",
+         "辅助"
+      ],
+      "priority": 0
     }
   ]
 }

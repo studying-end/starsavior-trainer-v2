@@ -25,6 +25,7 @@ from starsavior_trainer.text_utils import (
 )
 from starsavior_trainer.vision import (
     RingColorDetector,
+    detect_flash_card,
     detect_flash_training,
     detect_red_text,
     detect_yellow_text,
@@ -176,6 +177,12 @@ def parse_training_select(
     confirm_button = profile.regions.get("training_select_confirm_button")
     back_button = profile.regions.get("top_back_button")
 
+    # §22.1: SELECT 顶部 HUD 也有耐力条(同坐标)，读当前耐力(绿前缀；灰=训练消耗预览不判)。
+    endurance_ratio = 0.0
+    endurance_rect = profile.regions.get("training_select_endurance_bar")
+    if endurance_rect is not None and image is not None:
+        endurance_ratio = estimate_endurance_ratio(image, endurance_rect)
+
     choices: list[TrainingChoice] = []
     for attr in TRAINING_CARD_ATTRIBUTES:
         card_rect = profile.regions.get(f"training_select_card_{attr}")
@@ -202,11 +209,13 @@ def parse_training_select(
         stat_gain = parse_first_int(gain_text) or 0
 
         ring = "none"
+        is_flash = False
         if image is not None:
             ring_rect = profile.regions.get("training_select_ring_detect")
             if ring_rect is not None:
                 ring_signal = RingColorDetector().detect(crop_region(image, ring_rect))
                 ring = ring_signal.name
+            is_flash = detect_flash_card(image, card_rect)
 
         choices.append(
             TrainingChoice(
@@ -218,6 +227,8 @@ def parse_training_select(
                 selected=selected,
                 confirm_button=confirm_button,
                 back_button=back_button,
+                endurance_ratio=endurance_ratio,
+                is_flash=is_flash,
             )
         )
 

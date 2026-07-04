@@ -70,6 +70,19 @@ def detect_flash_training(image: Image.Image, rect: Rect) -> bool:
     return float(golden) > 0.25
 
 
+def detect_flash_card(image: Image.Image, rect: Rect) -> bool:
+    """SELECT 训练卡是否闪光（金黄背景/边框）。区别于 HUB 按钮 detect_flash_training（整卡金黄），
+    SELECT 卡背景白/暗、边框金，用金黄像素(R-B>30 且 R>120)占比 > 10% 判定。
+    实测 power(闪光) 金黄16%、stamina/guts/wisdom/speed(普通) 0%。"""
+    crop = crop_region(image, rect)
+    arr = np.asarray(crop.convert("RGB"), dtype=np.int16)
+    if arr.size == 0:
+        return False
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    golden = ((r - b > 30) & (r > 120)).mean()
+    return float(golden) > 0.10
+
+
 class RingColorDetector:
     """Detect coarse training ring colors in a cropped region."""
 

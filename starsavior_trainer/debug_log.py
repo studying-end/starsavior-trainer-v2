@@ -45,10 +45,12 @@ def _dump_training_hub(p: TrainingHubStatus) -> None:
 
 def _dump_training_select(choices) -> None:
     choices = list(choices)
-    print(f"  [画面] 训练选择 TRAINING_SELECT  候选卡数={len(choices)}")
+    end = choices[0].endurance_ratio if choices else 0.0
+    print(f"  [画面] 训练选择 TRAINING_SELECT  候选卡数={len(choices)}  当前耐力={end:.0%}")
     for c in choices:
+        flash = "✨闪光 " if c.is_flash else ""
         print(
-            f"  [卡] {c.name}: 训练值(gain)={c.stat_gain}  环(ring)={c.ring}  "
+            f"  [卡] {c.name}: {flash}训练值(gain)={c.stat_gain}  环(ring)={c.ring}  "
             f"失败率={c.fail_rate}%  选中={c.selected}  目标={_r(c.target)}  确认={_r(c.confirm_button)}"
         )
 

@@ -91,7 +91,30 @@ class ShopInspectorTest(unittest.TestCase):
         action = insp.decide(scene, policy=None)
 
         self.assertIsNotNone(action)
-        self.assertEqual(action.kind, "click")  # inspect item #1
+        self.assertEqual(action.kind, "click")  # inspect first unseen row
+
+    def test_inspect_order_skips_first_then_back(self) -> None:
+        """检视顺序 2→3→...→N→1: 首次点击 #2 而非 #1(避开首商品选中态关闭详情坑, §22.8)。"""
+        insp = ShopInspector()
+        scene = ShopScene(
+            items=(
+                ShopItem("a", 0, Rect(0, 0, 10, 10)),
+                ShopItem("b", 0, Rect(20, 0, 10, 10)),
+                ShopItem("c", 0, Rect(40, 0, 10, 10)),
+            ),
+        )
+        # 首次 decide 应排定顺序 [2,3,1] 并点 #2
+        action = insp.decide(scene, policy=None)
+        self.assertEqual(insp.inspect_order, [2, 3, 1])
+        self.assertEqual(action.kind, "click")
+        self.assertEqual(action.target, Rect(20, 0, 10, 10))  # 点 #2 (items[1])
+
+    def test_inspect_order_single_item(self) -> None:
+        """N=1 时退化为 [1](只有一件商品, 无避开必要)。"""
+        insp = ShopInspector()
+        scene = ShopScene(items=(ShopItem("a", 0, Rect(0, 0, 10, 10)),))
+        insp.decide(scene, policy=None)
+        self.assertEqual(insp.inspect_order, [1])
 
 
 class BlessingInspectorTest(unittest.TestCase):

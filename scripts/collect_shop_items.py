@@ -243,33 +243,32 @@ def main() -> int:
     # 2. 倒数
     _countdown(args.countdown)
 
-    # 3. 逐行点击读 effect
-    print("\n[采集] 逐个点开商品读 effect（不会点购买按钮）...")
+    # 3. 按固定顺序 2→3→1 点击读 effect
+    # 避开首商品坑：游戏首次进入交易默认选中 #1，点 #1 会*关闭*详情而非打开。
+    # 先点未选中的 #2/#3，最后点 #1（此时 #1 非当前选中态，点击正常打开）。
+    # 这样每个 effect 都明确归属于点击的那行，不会错配。
+    print("\n[采集] 按 #2→#3→#1 顺序点开商品读 effect（不会点购买按钮）...")
+    row_by_idx = {r.idx: r for r in rows}
+    click_order = [2, 3, 1]
+    prev_effect = ""
+    # 采集 prev_effect 初始值：当前面板显示的 effect（点击 #2 后期待它变化）
+    et_list = reader.read_names(image, ("shop_detail_effect",))
+    if et_list:
+        prev_effect = normalize_ocr_text(et_list[0].text.strip())
     try:
-        # 首商品坑：游戏默认打开第一个商品 → selected_effect 已显示，第一个不点直接读
-        initial_effect = ""
-        et_list = reader.read_names(image, ("shop_detail_effect",))
-        if et_list:
-            initial_effect = normalize_ocr_text(et_list[0].text.strip())
-        if initial_effect.strip() and rows:
-            print(f"  #{rows[0].idx} 首商品已默认选中，直接读 effect: {initial_effect!r}")
-            rows[0].effect = initial_effect
-            start_idx = 1
-        else:
-            start_idx = 0
-
-        prev_effect = initial_effect
-        for i in range(start_idx, len(rows)):
-            row = rows[i]
-            item_rect = profile.regions.get(f"shop_item_{row.idx}")
+        for idx in click_order:
+            row = row_by_idx.get(idx)
+            if row is None:
+                continue
+            item_rect = profile.regions.get(f"shop_item_{idx}")
             if item_rect is None:
                 continue
-            print(f"  #{row.idx} 点击商品行 ...")
+            print(f"  #{idx} 点击商品行 ...")
             _click_center(item_rect, window.rect)
             effect = _read_effect_stable(args.window_title, profile, engine, prev_effect)
             row.effect = effect
             prev_effect = effect
-            print(f"  #{row.idx} name={row.name!r} price={row.price} effect={effect!r}")
+            print(f"  #{idx} name={row.name!r} price={row.price} effect={effect!r}")
     except KeyboardInterrupt:
         print("\n[急停] 用户中止（鼠标角落 / Ctrl+C）")
         # 仍展示已采集的部分

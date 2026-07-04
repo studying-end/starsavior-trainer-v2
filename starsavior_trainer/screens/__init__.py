@@ -156,6 +156,9 @@ def _decide_training_hub(obs, state, policy):
 def _decide_training_select(obs, state, policy):
     if not _is_iterable_of(obs.payload, TrainingChoice):
         return Action("pause", None, "training screen missing training choices")
+    # §22.1: SELECT 也 cache endurance（HUD 同坐标，绿=当前耐力，灰=训练消耗预览不判）。
+    if obs.payload:
+        policy._cached_endurance = obs.payload[0].endurance_ratio
     return policy.decide_training(obs.payload, state)
 
 

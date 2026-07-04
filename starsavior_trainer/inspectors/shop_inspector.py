@@ -42,6 +42,10 @@ class ShopInspector:
     # 记录上次见到的 effect, 仅当 selected_effect 变化才记录 effects[X]; 最多等 3 帧避免死锁。
     last_seen_effect: str = ""
     settle_wait: int = 0
+    # 检视顺序(1-based idx 列表)。首次进入交易界面时按 2→3→...→N→1 排定(§22.8)：
+    # 游戏默认打开 #1, 点已选中的 #1 会*关闭*详情而非打开 → #1 放最后点(此时它非选中态)。
+    # 这样每个 effect 都明确归属于点击的那行, 消除首商品 effect 错配导致入库脏数据。
+    inspect_order: list[int] = field(default_factory=list)
 
     def decide(self, scene: ShopScene, policy) -> Action | None:
         items = list(scene.items)
@@ -64,19 +68,25 @@ class ShopInspector:
             self.last_seen_effect = new_effect
             self.settle_wait = 0
 
-        # 1.5) 首次进入交易界面: 游戏默认打开第一个商品的详细界面 (selected_effect 非空)。
-        # 此时再点第一个商品会 *关闭* 详细而非打开 (与点击其他行相反)。直接把当前
-        # selected_effect 当作第一个商品的 effect 记录, 跳过点击 idx=1, 从 idx=2 开始检视。
-        if not self.effects and self.pending_index is None and scene.selected_effect.strip():
-            self.effects[1] = scene.selected_effect.strip()
-            self.names[1] = items[0].name
-            self.prices[1] = items[0].price
-            self.last_selected_index = 1
+        # 1.5) 首次进入交易界面: 排定检视顺序 2→3→...→N→1(§22.8)。
+        # 游戏默认打开 #1 → 点已选中的 #1 会*关闭*详情而非打开(与点其它行相反)。
+        # 故 #1 放最后点(此时它已被其它行的点击取消选中, 再点正常打开详情)。
+        # 旧实现的"直接把当前 selected_effect 当作 #1 的 effect"假设游戏默认选中 #1,
+        # 但真机验证该假设不成立(默认选中的可能是任意行)→ effect 错配 → 入库脏数据。
+        # N=1 时退化为 [1](只有一件商品, 点它会关闭再点开, settle_wait 兜底处理)。
+        if not self.inspect_order:
+            if n >= 2:
+                self.inspect_order = list(range(2, n + 1)) + [1]
+            else:
+                self.inspect_order = [1]
+            # 把首帧 selected_effect 作为 last_seen_effect 基线, 让 settle_wait 机制能
+            # 判断"点击 #2 后 selected_effect 是否变化"(否则 last_seen_effect="" 时第一个
+            # 非空 effect 永远 != "" → 直接记录, 跳过刷新等待 → 可能录入未刷新的旧值)。
             self.last_seen_effect = scene.selected_effect.strip()
 
-        # 2) Inspect any not-yet-seen row by clicking it (selects it -> detail shows
-        #    its effect next frame). 同时记录 name/price（items[idx-1] 上帧已 OCR 出）。
-        for idx in range(1, n + 1):
+        # 2) 按 inspect_order 检视未读的行(点它选中 → 下帧面板显示其 effect)。
+        #    name/price 用 items[idx-1] 本帧 OCR 结果记录。
+        for idx in self.inspect_order:
             if idx not in self.effects:
                 self.names[idx] = items[idx - 1].name
                 self.prices[idx] = items[idx - 1].price
@@ -153,3 +163,4 @@ class ShopInspector:
         self.pending_index = None
         self.last_selected_index = None
         self.bought_effects = set()
+        self.inspect_order = []

@@ -163,43 +163,48 @@ class ShopInspectorIntegrationTest(unittest.TestCase):
         )
 
     def _drive_inspection(self, inspector: ShopInspector, scene: ShopScene, effects: dict[int, str]) -> None:
-        """模拟检视器逐个点开 3 行（每行点击 → 下一帧 selected_effect 变为该行 effect）。
+        """模拟检视器按 2→3→1 顺序逐个点开 3 行（每行点击 → 下一帧 selected_effect 变为该行 effect）。
         检视完后停止，不做后续决策（让测试自己驱动后续 decide）。
 
-        注意: 新等待逻辑下, 若 effects[X]==effects[X-1], inspector 会等 3 帧才强制记录。
-        所以这里循环调用直到 effects[X] 记录成功(最多 5 帧)。
+        新顺序(§22.8): 2→3→1。#1 放最后避开"点已选中态关闭详情"坑。
+        注意: 若 effects[X]==上一条已记 effect, inspector 会等 3 帧才强制记录 → 循环到记录成功。
         """
-        # iter 1: 点 #1 (scene.selected_effect="")
-        inspector.decide(scene, self.policy)  # pending_index=1
-        # iter 2: #1 详情显示 → 记 effects[1], 点 #2
-        inspector.decide(replace(scene, selected_effect=effects[1]), self.policy)
-        # iter 3+: #2 详情显示。若 effects[2]==effects[1] → 等待, 循环到 effects[2] 记录
+        # iter 1: 点 #2 (scene.selected_effect="")
+        inspector.decide(scene, self.policy)  # pending_index=2
+        # iter 2+: #2 详情显示 → 记 effects[2], 点 #3。若与初始相同等 3 帧。
         scene2 = replace(scene, selected_effect=effects[2])
         for _ in range(5):
             if 2 in inspector.effects:
                 break
             inspector.decide(scene2, self.policy)
-        # 模拟 #3 已读
-        inspector.effects[3] = effects[3]
+        # iter 3+: #3 详情显示 → 记 effects[3], 点 #1
+        scene3 = replace(scene, selected_effect=effects[3])
+        for _ in range(5):
+            if 3 in inspector.effects:
+                break
+            inspector.decide(scene3, self.policy)
+        # 模拟 #1 已读（最后一点，#1 详情显示后 inspector 会记 effects[1] 并进入决策）
+        inspector.effects[1] = effects[1]
         inspector.pending_index = None
-        inspector.last_selected_index = 3
+        inspector.last_selected_index = 1
 
     def test_inspector_inspects_all_rows_first(self) -> None:
-        """未检视完前只点 inspect，不买。"""
+        """未检视完前只点 inspect，不买。新顺序首帧点 #2(§22.8)。"""
         inspector = ShopInspector()
-        # iter 1: 点 #1
+        # iter 1: 点 #2 (新顺序 2→3→1)
         action = inspector.decide(self.scene, self.policy)
-        self.assertIn("inspect shop item #1", action.reason)
+        self.assertIn("inspect shop item #2", action.reason)
 
     def test_attacker_buys_attacker_item_first(self) -> None:
         """刺客角色 → 买刺客分类的商品（力量药剂 priority=0）而非坦克（体力药剂 priority=1）。"""
         self.policy.character_class = "刺客"  # 直接设在 policy 上（测试 hack）
         inspector = ShopInspector()
-        # 模拟 3 帧检视
+        # 模拟 3 帧检视（新顺序 2→3→1, _drive_inspection 最后点 #1）
         self._drive_inspection(inspector, self.scene, {1: "力量+3", 2: "体力+3", 3: "HP+10"})
-        # 第 4 帧检视完 → 选 priority 最高的（力量药剂 priority=0）
+        # 第 4 帧检视完 → 选 priority 最高的（力量药剂 priority=0）。
+        # 最后检视的是 #1(已选中) → 直接走"购买"分支(两步确认优化)。
         action = inspector.decide(self.scene, self.policy)
-        self.assertIn("select shop item #1", action.reason)
+        self.assertIn("shop item #1", action.reason)
         self.assertIn("priority=0", action.reason)
 
     def test_tank_buys_tank_item_first(self) -> None:
@@ -259,7 +264,7 @@ class ShopInspectorIntegrationTest(unittest.TestCase):
         self.assertIn("无匹配商品", action.reason)
 
     def test_buy_multiple_items(self) -> None:
-        """买完第一件后继续买第二件（取消限购1件限制）。"""
+        """买完第一件后继续买第二件（取消限购1件限制）。新顺序 2 件商品 = [2,1](§22.8)。"""
         # 预置 2 件刺客商品
         shop_db.save_shop(self.db_path, "刺客武器", "攻击+5", 200, ("刺客",), 0)
         shop_db.save_shop(self.db_path, "刺客护甲", "防御+2", 150, ("刺客",), 1)
@@ -274,56 +279,53 @@ class ShopInspectorIntegrationTest(unittest.TestCase):
         )
         self.policy.character_class = "刺客"
         inspector = ShopInspector()
-        # 检视 2 行
-        inspector.decide(scene, self.policy)  # inspect #1
-        inspector.decide(replace(scene, selected_effect="攻击+5"), self.policy)  # inspect #2
-        # 第 3 帧：检视完，选 #1（priority=0 优先）
-        inspector.effects[2] = "防御+2"  # 模拟第 2 行已读
-        inspector.pending_index = None
-        inspector.last_selected_index = 2
-        action = inspector.decide(replace(scene, selected_effect="防御+2"), self.policy)
-        self.assertIn("select shop item #1", action.reason)
-        # 第 4 帧：买 #1（last_selected_index=1 + buy_button）
-        inspector.last_selected_index = 1
-        action = inspector.decide(scene, self.policy)
+        # 检视顺序 [2,1]: 首帧点 #2
+        self.assertEqual(inspector.decide(scene, self.policy).reason, "inspect shop item #2")
+        # 帧 2: #2 详情显示 → 记 effects[2]=防御+2, 点 #1
+        inspector.decide(replace(scene, selected_effect="防御+2"), self.policy)
+        # 帧 3: #1 详情显示 → 记 effects[1]=攻击+5, 检视完进入决策。
+        # #1 是最后检视的(已选中, last_selected_index=1) → 选 priority 最高的 #1 直接购买。
+        action = inspector.decide(replace(scene, selected_effect="攻击+5"), self.policy)
         self.assertIn("购买 shop item #1", action.reason)
-        # 第 5 帧：买完 #1 后继续买 #2（不退出）
+        # 买完 #1 后继续买 #2（不退出）
         action = inspector.decide(scene, self.policy)
         # 应该选 #2 或继续流程，而不是退出
         self.assertNotEqual(action.target, scene.back_button)
 
     def test_default_open_first_item_skips_click(self) -> None:
-        """进入交易界面游戏默认打开第一个商品详细 (selected_effect 非空)。
-        再点 #1 会 *关闭* 详细而非打开 → 必须跳过点击 #1, 直接从 #2 开始检视。
-        修复: 首帧 selected_effect 非空 + effects 空 → 直接记 effects[1], 点 #2。
+        """进入交易界面游戏默认打开某商品 (selected_effect 非空)。
+
+        §22.8 新逻辑: 不再假设默认打开的是 #1, 也不把首帧 selected_effect 当作 #1 的 effect
+        (真机验证该假设不成立 → effect 错配 → 入库脏数据)。改为固定按 2→3→1 检视顺序,
+        首帧无论 selected_effect 是否为空都直接点 #2, 不预记任何 effect。
+        #1 放最后点(此时它非选中态, 点它正常打开详情)。
         """
         # 预置 #1 已入库（力量药剂 priority=0），#2/#3 未入库
         shop_db.save_shop(self.db_path, "力量药剂", "力量+3", 100, ("刺客",), 0)
-        # 首帧: selected_effect 是 #1 的 effect（游戏默认打开 #1）
+        # 首帧: selected_effect 非空（游戏默认打开某商品，可能是任意行）
         scene_first = replace(self.scene, selected_effect="力量+3")
         inspector = ShopInspector()
-        # 第一帧 decide: 应该记 effects[1]=力量+3, 然后点 #2（不点 #1）
+        # 第一帧 decide: 直接点 #2（不预记 effects[1]，避开错配）
         action = inspector.decide(scene_first, self.policy)
         self.assertIn("inspect shop item #2", action.reason)
-        self.assertNotIn("#1", action.reason)
-        # #1 的 effect 已记录（没点 #1 就拿到了）
-        self.assertEqual(inspector.effects.get(1), "力量+3")
-        self.assertEqual(inspector.names.get(1), "力量药剂")
-        # pending_index=2 (等下帧 #2 详情)
+        # 关键: 不再把首帧 selected_effect 当作 #1 的 effect
+        self.assertNotIn(1, inspector.effects)
         self.assertEqual(inspector.pending_index, 2)
 
     def test_wait_for_detail_refresh_before_recording(self) -> None:
-        """live_loop 0.5s 太快: 点击 #2 后下一帧 OCR 可能仍读 #1 的 effect(详情面板未刷新)。
-        必须等 selected_effect 变化才记录 effects[2], 否则全录入 #1 的 effect。
+        """live_loop 0.5s 太快: 点击 #2 后下一帧 OCR 可能仍读旧 effect(详情面板未刷新)。
+        必须等 selected_effect 变化(或 settle_wait>=3)才记录 effects[2]。
+
+        §22.8: 新顺序首帧点 #2(不预记 effects[1]), prev_effect 初始为 scene.selected_effect。
         """
         # 预置: #1 已入库 effect=体力4增加
         shop_db.save_shop(self.db_path, "奶油义大利面", "体力4增加", 20, (), 0)
-        # 帧 1: 进入交易界面, 游戏默认打开 #1, selected_effect=#1 effect
+        # 帧 1: 进入交易界面, 游戏默认打开某商品, selected_effect=体力4增加
         scene1 = replace(self.scene, selected_effect="体力4增加")
         inspector = ShopInspector()
         action1 = inspector.decide(scene1, self.policy)
-        # 帧 1 应该: 记 effects[1]=体力4增加, 点 #2
-        self.assertEqual(inspector.effects[1], "体力4增加")
+        # 帧 1 应该: 点 #2, 不预记 effects[1]
+        self.assertNotIn(1, inspector.effects)
         self.assertEqual(inspector.pending_index, 2)
         # 帧 2: 点击 #2 后下一帧, 详情面板未刷新, selected_effect 仍是 "体力4增加"
         scene2 = replace(self.scene, selected_effect="体力4增加")  # 未刷新
@@ -343,13 +345,17 @@ class ShopInspectorIntegrationTest(unittest.TestCase):
         self.assertEqual(inspector.settle_wait, 0)  # 重置
 
     def test_force_record_after_3_waits_when_effects_genuinely_same(self) -> None:
-        """真有 2 件商品 effect 完全相同: 等 3 帧后强制记录(避免死循环)。"""
+        """真有商品 effect 与首帧 selected_effect 完全相同: 等 3 帧后强制记录(避免死循环)。
+
+        §22.8: 新顺序首帧点 #2, prev_effect=首帧 selected_effect。若 #2 effect 与之相同,
+        inspector 会等 3 帧后强制记录 effects[2]。
+        """
         shop_db.save_shop(self.db_path, "药剂A", "体力4增加", 20, (), 0)
         shop_db.save_shop(self.db_path, "药剂B", "体力4增加", 30, (), 0)
-        # 帧 1: 默认打开 #1, effect="体力4增加"
+        # 帧 1: 默认打开某商品, selected_effect="体力4增加", 点 #2
         scene1 = replace(self.scene, selected_effect="体力4增加")
         inspector = ShopInspector()
-        inspector.decide(scene1, self.policy)  # 记 effects[1], 点 #2
+        inspector.decide(scene1, self.policy)  # 点 #2, 不预记 effects[1]
         # 帧 2-4: #2 的 effect 也是 "体力4增加" (真的相同), 等 3 帧后强制记录
         scene_same = replace(self.scene, selected_effect="体力4增加")
         inspector.decide(scene_same, self.policy)  # 等 1 (settle_wait=1)
