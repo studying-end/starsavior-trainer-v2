@@ -40,10 +40,46 @@
       "effect": "每回合开始时,自身所受伤害量减少 1%。最多可叠加5次。 潜质点数8退还",
       "price": 50,
       "classes": [
-         "坦克",
-         "辅助"
+        "坦克",
+        "辅助"
       ],
       "priority": 0
+    },
+    {
+      "name": "高级水果沙拉",
+      "effect": "专注18增加",
+      "price": 40,
+      "classes": [],
+      "priority": 99
+    },
+    {
+      "name": "普通蛋糕",
+      "effect": "潜质点数10增加",
+      "price": 15,
+      "classes": [],
+      "priority": 0
+    },
+    {
+      "name": "综合营养剂",
+      "effect": "解除所有负面旅程状态",
+      "price": 20,
+      "classes": [],
+      "priority": 99,
+      "always_buy": true
+    },
+    {
+      "name": "皇家奶油义大利",
+      "effect": "体力36增加",
+      "price": 80,
+      "classes": [],
+      "priority": 99
+    },
+    {
+      "name": "普通牛奶",
+      "effect": "状态1恢复",
+      "price": 30,
+      "classes": [],
+      "priority": 99
     }
   ]
 }
