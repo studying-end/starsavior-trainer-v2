@@ -148,7 +148,8 @@ def _decide_training_hub(obs, state, policy):
         if obs.payload.has_shop_alert and obs.payload.shop_button is not None:
             return Action("click", obs.payload.shop_button, "training hub, shop alert")
         if obs.payload.training_button is not None:
-            return Action("click", obs.payload.training_button, "training hub, enter training")
+            flash = "✨闪光训练" if obs.payload.has_flash_training else "普通训练"
+            return Action("click", obs.payload.training_button, f"training hub, enter training ({flash})")
     return Action("click", policy.config.start_button, "training hub, click training")
 
 

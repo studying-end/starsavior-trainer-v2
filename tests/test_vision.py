@@ -6,6 +6,7 @@ from starsavior_trainer.vision import (
     BlueButtonDetector,
     RingColorDetector,
     count_heads,
+    detect_flash_training,
     estimate_endurance_ratio,
     _is_bond_maxed,
 )
@@ -68,6 +69,18 @@ class VisionTest(unittest.TestCase):
         img = np.zeros((150, 110, 3), dtype=np.uint8)
         img[105:120, 5:105] = (200, 100, 50)  # 蓝色
         self.assertFalse(_is_bond_maxed(img, (0, 0), 100, 100))
+
+    def test_detect_flash_training_golden_button(self) -> None:
+        # §22.6: 金黄按钮 RGB(180,160,90) R-B=90 → 闪光 True。
+        import numpy as np
+        arr = np.full((40, 100, 3), [180, 160, 90], dtype=np.uint8)
+        self.assertTrue(detect_flash_training(Image.fromarray(arr, "RGB"), Rect(0, 0, 100, 40)))
+
+    def test_detect_flash_training_gray_button_returns_false(self) -> None:
+        # 灰白按钮 RGB(200,200,200) R-B=0 → 非闪光。
+        import numpy as np
+        arr = np.full((40, 100, 3), [200, 200, 200], dtype=np.uint8)
+        self.assertFalse(detect_flash_training(Image.fromarray(arr, "RGB"), Rect(0, 0, 100, 40)))
 
     def test_blue_button_detector_ignores_grey_button(self) -> None:
         image = Image.new("RGB", (100, 40), (70, 70, 70))

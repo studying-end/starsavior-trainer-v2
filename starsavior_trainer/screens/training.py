@@ -25,6 +25,7 @@ from starsavior_trainer.text_utils import (
 )
 from starsavior_trainer.vision import (
     RingColorDetector,
+    detect_flash_training,
     detect_red_text,
     detect_yellow_text,
     estimate_endurance_ratio,
@@ -78,7 +79,12 @@ def parse_training_hub(
     if endurance_rect is not None and image is not None:
         endurance_ratio = estimate_endurance_ratio(image, endurance_rect)
     mood = _parse_mood(texts.get("training_hub_mood_label", ""))
-    logger.info(f"训练大厅: 耐力(endurance) {endurance_ratio:.0%}, 心情(mood) {mood or '未知'}")
+    has_flash_training = False
+    training_btn = profile.regions.get("training_hub_action_training")
+    if training_btn is not None and image is not None:
+        has_flash_training = detect_flash_training(image, training_btn)
+    flash_tag = "✨闪光训练 " if has_flash_training else ""
+    logger.info(f"训练大厅: {flash_tag}耐力 {endurance_ratio:.0%}, 心情 {mood or '未知'}")
 
     return TrainingHubStatus(
         turn_label=turn_label,
@@ -97,6 +103,7 @@ def parse_training_hub(
         trading_button=trading_button,
         endurance_ratio=endurance_ratio,
         mood=mood,
+        has_flash_training=has_flash_training,
     )
 
 

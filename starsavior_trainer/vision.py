@@ -58,6 +58,18 @@ def estimate_endurance_ratio(image: Image.Image, rect: Rect) -> float:
     return min(fill_end / width, 1.0)
 
 
+def detect_flash_training(image: Image.Image, rect: Rect) -> bool:
+    """训练按钮是否闪光（金黄），区别于普通灰白按钮。闪光时按钮 R-B 明显偏大（金/橙色调）。
+    实测 flash training 按钮 R-B=44 金黄 29%；普通 commission/rest 按钮 R-B<20 灰白。"""
+    crop = crop_region(image, rect)
+    arr = np.asarray(crop.convert("RGB"), dtype=np.int16)
+    if arr.size == 0:
+        return False
+    r, g, b = arr[:, :, 0], arr[:, :, 1], arr[:, :, 2]
+    golden = ((r - b > 25) & (r > 80)).mean()  # 金黄像素: R-B 大且较亮
+    return float(golden) > 0.25
+
+
 class RingColorDetector:
     """Detect coarse training ring colors in a cropped region."""
 

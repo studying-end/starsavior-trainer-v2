@@ -301,6 +301,8 @@ class TrainingHubStatus:
     endurance_ratio: float = 0.0
     # 心情等级（BEST/GOOD/NORMAL）OCR 自顶部 HUD mood_label；None = 未读到。详见 §22.3。
     mood: str | None = None
+    # 训练按钮是否闪光（金黄，闪光训练=大量训练值）；CV 检测按钮 R-B 偏金。详见 §22.6。
+    has_flash_training: bool = False
 
 
 @dataclass(frozen=True)
