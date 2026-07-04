@@ -53,6 +53,7 @@ from starsavior_trainer.cli.runtime import (
 from starsavior_trainer.executor import DryRunExecutor, PyAutoGuiExecutor, map_action_to_rect
 from starsavior_trainer.inspectors.commission_inspector import CommissionInspector
 from starsavior_trainer.inspectors.shop_inspector import ShopInspector
+from starsavior_trainer.inspectors.skill_inspector import SkillInspector
 from starsavior_trainer.inspectors.training_inspector import TrainingInspector
 from starsavior_trainer.logging_setup import get_logger
 from starsavior_trainer.models import (
@@ -131,6 +132,7 @@ def main() -> None:
     training_inspector = TrainingInspector(max_fail_rate=policy.config.max_training_fail_rate)
     shop_inspector = ShopInspector()
     commission_inspector = CommissionInspector()
+    skill_inspector = SkillInspector()
     state = GameState(desired_character=args.character, desired_variant=args.variant, build_profile=args.build_profile)
     # 启动时按 desired_character 查 config/characters.json 填入 character_class
     # (刺客/术师/游侠/突击者/辅助/坦克), 供 decide_relic 选属性优先级组用。
@@ -249,9 +251,37 @@ def main() -> None:
                 )
 
             if observation.screen == Screen.UNKNOWN:
-                unknown_path = Path("screenshots/live_unknown_latest.png")
-                save_image(screenshot, unknown_path)
-                consecutive_unknown += 1
+                # §22.11 回合数兜底: 第15/30回合(N/45)必定是地区移动。UNKNOWN 时若回合数
+                # 命中 region_move_rounds, 尝试 parse_region_move —— 成功则按 REGION_MOVE 决策,
+                # 避免 region_move 分类失败时误点中心推进(错过地区移动)。
+                # 架构合规: 不在 classifier 强制分类(OCR 只产 Observation), 在 live_loop 用
+                # 回合数+region 信息兜底(同 GOAL_DIALOG 回合校准模式)。
+                if state.current_round in policy.config.region_move_rounds:
+                    from starsavior_trainer.screens.region_move import parse_region_move
+                    region_texts = reader.read_prefixes(
+                        screenshot,
+                        ("region_move_anchor_title", "region_move_station_title",
+                         "region_move_destination_1", "region_move_destination_1_name",
+                         "region_move_destination_2", "region_move_destination_2_name",
+                         "region_move_go_button"),
+                    )
+                    region_payload = parse_region_move(region_texts, profile)
+                    if region_payload is not None and region_payload.is_region_move:
+                        observation = Observation(
+                            screen=Screen.REGION_MOVE,
+                            confidence=0.7,
+                            payload=region_payload,
+                        )
+                        print(f"  [回合兜底] 第{state.current_round}回合 UNKNOWN → 强制 REGION_MOVE")
+                    else:
+                        unknown_path = Path("screenshots/live_unknown_latest.png")
+                        save_image(screenshot, unknown_path)
+                        consecutive_unknown += 1
+                        print(f"  [回合兜底] 第{state.current_round}回合但非 region_move, 按 UNKNOWN 处理")
+                else:
+                    unknown_path = Path("screenshots/live_unknown_latest.png")
+                    save_image(screenshot, unknown_path)
+                    consecutive_unknown += 1
                 # Most unknown frames are transition/display screens (loading splash,
                 # reward display, dialogue) that either auto-advance or just need a
                 # click to continue. Click the screen centre to push through; only
@@ -302,12 +332,14 @@ def main() -> None:
             if observation.screen in (Screen.INITIAL, Screen.CHARACTER_SELECT):
                 round_tracker.reset()
                 policy._needs_goal_round = True  # §22.9 旅程首次必读 N/45 校准
+                policy._skill_done = False  # §22.13 新旅程 → 重置潜质学习标志
             if observation.screen == Screen.TRAINING_HUB and isinstance(observation.payload, TrainingHubStatus):
                 prev_round = round_tracker.current_round
                 round_tracker.observe_date(observation.payload.turn_label)
                 # §22.9: 日期变化(回合+1)→ 标记需要读目标弹窗 N/45 校准(日期计数不准)。
                 if round_tracker.current_round != prev_round:
                     policy._needs_goal_round = True
+                    policy._skill_done = False  # §22.13 新回合 → 可再学潜质(重置防死循环标志)
                 # 从大厅 "RANK 21" 读角色综合等级 → 委托选阶用(选建议等级≤它的最高阶)。
                 rank_num = parse_first_int(observation.payload.rank_label or "")
                 if rank_num is not None:
@@ -344,7 +376,7 @@ def main() -> None:
             # the inspector clicks each row to read its effect, then buys by effect
             # (回体力/潜质点退还) — mirrors the training inspector.
             if observation.screen == Screen.SHOP and isinstance(observation.payload, ShopScene):
-                action = shop_inspector.decide(observation.payload, policy)
+                action = shop_inspector.decide(observation.payload, policy, image=screenshot)
                 if action is not None:
                     print(
                         f"  shop_inspector effects={shop_inspector.effects} "
@@ -353,6 +385,50 @@ def main() -> None:
                     )
             elif observation.screen != Screen.SHOP:
                 shop_inspector.reset()
+            # §22.13 Skill select: SkillInspector 接管(扫库→贪心→习得循环)。
+            # 自己 OCR 识别潜质行(状态标签锚点), 不走 parse_skill_select。
+            if observation.screen == Screen.SKILL_SELECT:
+                # 读潜质点数(skill_select_potential_points region)
+                pp_rect = profile.regions.get("skill_select_potential_points")
+                potential_points = None
+                if pp_rect is not None:
+                    pp_rt = reader.read_names(screenshot, ("skill_select_potential_points",))
+                    if pp_rt:
+                        potential_points = parse_first_int(pp_rt[0].text)
+                close_btn = profile.regions.get("skill_select_close_button")
+
+                def _read_skill_rows_live():
+                    """读当前帧可见潜质行 → [(name, price, status, target, y), ...]
+
+                    target 用行 name_cy 匹配最接近的 skill_select_option_N_button region。
+                    """
+                    from starsavior_trainer import skill_reader
+                    lines = skill_reader.read_skill_lines(screenshot, reader.ocr)
+                    out = []
+                    for ln in lines:
+                        # target: 直接用 OCR 检测到的"习得/升级"按钮 bbox(准确),
+                        # 不再用 option_N_button region 匹配(后者 x 偏右会点错位置)。
+                        target = None
+                        if ln.button_rect is not None:
+                            x1, y1, x2, y2 = ln.button_rect
+                            target = Rect(x1, y1, x2 - x1, y2 - y1)
+                        out.append((ln.name, ln.price, ln.status, target, ln.name_cy, ln.level))
+                    return out
+
+                def _scroll_skill():
+                    """上滑看下方潜质"""
+                    from starsavior_trainer import skill_reader
+                    skill_reader.drag_scroll_up()
+
+                action = skill_inspector.decide(
+                    potential_points, policy,
+                    read_rows=_read_skill_rows_live, scroll=_scroll_skill,
+                    close_button=close_btn,
+                )
+                if action is not None:
+                    print(f"  skill_inspector phase={skill_inspector._phase} learned={skill_inspector.learned} points={potential_points}")
+            elif observation.screen != Screen.SKILL_SELECT:
+                skill_inspector.reset()
             # Commission: the list shows only tier names; the suggested rank shows
             # only in the detail once a commission is selected, so inspect each by
             # clicking it, read its 建议综合等级, then accept the highest tier whose
