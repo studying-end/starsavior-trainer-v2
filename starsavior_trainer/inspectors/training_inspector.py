@@ -19,6 +19,8 @@ logger = get_logger("training_inspector")
 EARLY_GAME_HEAD_ATTRS = ("power", "stamina", "guts", "wisdom", "speed")
 # 早期游戏按人头选的回合窗口(可配置; 用户约定默认 20)。
 EARLY_GAME_HEAD_ROUNDS = 20
+# §22.24 confirm 后 N 帧画面仍没切走 → 强制 reset 重试（防 confirm 失败死锁）
+_CONFIRMED_TIMEOUT_FRAMES = 5
 
 
 def decide_early_training(head_counts: dict[str, int]) -> str | None:
@@ -59,11 +61,16 @@ class TrainingInspector:
     # 下一帧 inspector 返回 None(不点任何卡) → 等画面切走 → reset() 清除。
     confirmed: bool = False
     head_confirmed: bool = False
+    # §22.24 auto_collect 每会话只采一次（避免每帧 ~0.4s × 5 卡 + 污染风险）
+    _auto_collected_this_session: bool = False
+    # §22.24 confirm 后帧计数（超 _CONFIRMED_TIMEOUT_FRAMES 强制 reset）
+    _confirmed_count: int = 0
 
     def decide(self, choices: Iterable[TrainingChoice], state: GameState | None = None, image=None, policy=None, profile=None) -> Action | None:
         choices = list(choices)
         # §22.19 确认后等画面切换：不检视/不选卡，等 reset() 清除(画面切走时 live_loop 调)
         if self.confirmed:
+            self._bump_confirmed_or_timeout()
             return None
         # 早期游戏(攒支援卡羁绊): 按人头选; 全<=1 去住处休息回心情
         if (
@@ -136,6 +143,7 @@ class TrainingInspector:
         """
         # §22.19 确认后等画面切换：不检视/不选卡
         if self.head_confirmed:
+            self._bump_confirmed_or_timeout()
             return None
 
         from starsavior_trainer.vision import count_heads
@@ -154,17 +162,18 @@ class TrainingInspector:
             self.head_decided = None
         # 记录上次点的卡的人头(它此时选中, image 显示其人头)
         if self.head_pending is not None and selected is not None and selected.name == self.head_pending:
-            # 自动采集新人头入库（profile 提供头像面板矩形）
-            if profile is not None:
+            # §22.24 auto_collect 每会话只采一次（避免每帧 ~0.4s × 5 卡 ~2s + 污染风险）
+            if profile is not None and not self._auto_collected_this_session:
                 try:
                     from starsavior_trainer.tools.collect_head_templates import auto_collect_new_heads
                     panel_rect = profile.regions.get("training_select_heads_panel")
                     if panel_rect is not None:
                         new_count = auto_collect_new_heads(image, panel_rect)
                         if new_count > 0:
-                            narrate(f"[自动入库] {selected.name} 卡发现 {new_count} 个新人头已入库")
+                            narrate(f"[自动入库] 发现 {new_count} 个新人头已入库（本会话首次）")
                 except Exception as e:
                     logger.debug(f"[auto_collect_new_heads] failed: {e}")
+                self._auto_collected_this_session = True
             n = count_heads(image, search_region=profile.regions.get("training_select_heads_panel") if profile is not None else None)
             self.head_counts[selected.name] = n
             narrate(f"[训练检视] {selected.name} 作数人头={n}")
@@ -222,6 +231,13 @@ class TrainingInspector:
         target = next((c for c in candidates if c.name == pick), None)
         return Action("click", target.target, f"early game choose {pick}: heads={counts[pick]}")
 
+    def _bump_confirmed_or_timeout(self) -> None:
+        """§22.24 confirmed/head_confirmed 后等画面切走；超 N 帧强制 reset（防 confirm 失败死锁）。"""
+        self._confirmed_count += 1
+        if self._confirmed_count > _CONFIRMED_TIMEOUT_FRAMES:
+            narrate(f"[confirm 超时] {_CONFIRMED_TIMEOUT_FRAMES} 帧画面没切走，强制 reset 重试")
+            self.reset()
+
     def reset(self) -> None:
         self.records = {}
         self.fails = {}
@@ -232,3 +248,5 @@ class TrainingInspector:
         self.head_decided = None
         self.confirmed = False  # §22.19
         self.head_confirmed = False  # §22.19
+        self._auto_collected_this_session = False  # §22.24
+        self._confirmed_count = 0  # §22.24
