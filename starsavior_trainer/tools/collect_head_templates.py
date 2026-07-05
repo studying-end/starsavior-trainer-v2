@@ -112,11 +112,11 @@ def _template_match_score(template: Image.Image, candidate: Image.Image) -> floa
     return float(res.max())
 
 
-def _is_duplicate(candidate: Image.Image, assets_dir: Path, threshold: float = 0.85) -> tuple[bool, str | None]:
+def _is_duplicate(candidate: Image.Image, assets_dir: Path, threshold: float = 0.80) -> tuple[bool, str | None]:
     """检查 candidate 是否与 assets_dir 下某模板重复。
 
     返回 (是否重复, 匹配到的模板文件名或 None)。
-    §22.20 阈值改为 0.85（= count_heads 识别阈值）——原 0.93 严于识别阈值导致
+    §22.26 阈值改 0.80（原 0.85 漏拦同脸 0.83（= count_heads 识别阈值）——原 0.93 严于识别阈值导致
     [0.85,0.93) 区间的"准重复"模板被入库，count_heads 用这些准重复模板匹配时
     也 >0.85 → 同一颗头被计多次。0.85 确保去重灵敏度 >= 识别灵敏度，不漏入库。
     比对**作数**模板（N.png）+ **不作数**模板（non_counting_head_N.png）——避免同一颗
@@ -248,7 +248,7 @@ def _find_head_instances(image: Image.Image, panel_rect, assets_dir: Path,
     return instances
 
 
-def auto_collect_new_heads(image: Image.Image, panel_rect, match_threshold: float = 0.85) -> int:
+def auto_collect_new_heads(image: Image.Image, panel_rect, match_threshold: float = 0.80) -> int:
     """自动采集新人头入库（live_loop 内调用）。
 
     沿头像列扫描，对未命中现有模板的新头像自动裁剪并保存为 config/assets/{N}.png。
@@ -257,7 +257,7 @@ def auto_collect_new_heads(image: Image.Image, panel_rect, match_threshold: floa
     Args:
         image: 训练选择画面截图（2560x1440）
         panel_rect: training_select_heads_panel 矩形
-        match_threshold: 去重阈值（§22.20 改 0.85=识别阈值，消除[0.85,0.93)准重复入库）
+        match_threshold: 去重阈值（§22.26 改 0.80（<识别0.85），拦同脸 0.83（11.png=nc5 漏拦））
 
     Returns:
         新入库的头像数量
@@ -293,8 +293,8 @@ def main() -> None:
                         help="裁剪预览输出目录")
     parser.add_argument("--dry-run", action="store_true",
                         help="只裁剪预览不保存到模板库")
-    parser.add_argument("--match-threshold", type=float, default=0.85,
-                        help="去重模板匹配阈值（§22.20 改 0.85=识别阈值，消除准重复入库）")
+    parser.add_argument("--match-threshold", type=float, default=0.80,
+                        help="去重模板匹配阈值（§22.26 改 0.80（<识别0.85），拦同脸 0.83）")
     parser.add_argument("--resize-crop", type=int, default=None,
                         help="裁剪后统一缩放到此尺寸（如 64，可选）")
     args = parser.parse_args()
