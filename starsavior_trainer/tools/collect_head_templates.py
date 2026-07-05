@@ -112,11 +112,13 @@ def _template_match_score(template: Image.Image, candidate: Image.Image) -> floa
     return float(res.max())
 
 
-def _is_duplicate(candidate: Image.Image, assets_dir: Path, threshold: float = 0.93) -> tuple[bool, str | None]:
+def _is_duplicate(candidate: Image.Image, assets_dir: Path, threshold: float = 0.85) -> tuple[bool, str | None]:
     """检查 candidate 是否与 assets_dir 下某模板重复。
 
     返回 (是否重复, 匹配到的模板文件名或 None)。
-    阈值 0.93 > count_heads 的 0.85 阈值，确保去重比识别的"更难"——避免漏存新头像。
+    §22.20 阈值改为 0.85（= count_heads 识别阈值）——原 0.93 严于识别阈值导致
+    [0.85,0.93) 区间的"准重复"模板被入库，count_heads 用这些准重复模板匹配时
+    也 >0.85 → 同一颗头被计多次。0.85 确保去重灵敏度 >= 识别灵敏度，不漏入库。
     比对**作数**模板（N.png）+ **不作数**模板（non_counting_head_N.png）——避免同一颗
     不作数头反复入库污染新库。旧库 counting_head_*.png 不参与（含进度条，几何不同）。
     旧库 non_counting_head_1/2.png（旧几何 113×113）会被加载，但因尺寸 > 候选 111×93
@@ -174,8 +176,11 @@ def _find_head_instances(image: Image.Image, panel_rect, assets_dir: Path,
     win_h = max(round(_HEAD_H_FRAC * panel_rect.height), 1)
     col_x = panel_rect.x + round(_HEAD_COL_X_FRAC * panel_rect.width)
     y_start = panel_rect.y
-    # 扫描范围扩大到全图高度：头像可能超出 panel 底部（panel h=260 容纳不下全部）
-    y_end = image.size[1] - win_h
+    # §22.23 限制扫描范围到头像面板区域 + 余量，不扫全图。
+    # 原全图扫描(y=130..1347)覆盖训练卡区域(y=338-1041)，训练卡 UI 元素 std>=40
+    # 且 loc_score>0.3 → 误判为新头像入库（5张卡却入库10+个模板）。
+    # 头像在面板 y=130-390 内，+100px 余量覆盖边缘，不扫到训练卡区域。
+    y_end = min(panel_rect.y + panel_rect.height + 100, image.size[1] - win_h)
 
     # 预读模板：loc_templates 用于定位（旧库+新库），dedup_templates 用于去重（仅新库）
     loc_templates: list[tuple[str, object]] = []
@@ -220,7 +225,8 @@ def _find_head_instances(image: Image.Image, panel_rect, assets_dir: Path,
         y += _HEAD_SLIDE_STEP
 
     # NMS: 在 loc_score 曲线上找局部极大值（间距 > _HEAD_NMS_DY）
-    # 局部极大值 = loc_score 比前后窗口都高，且 > 0.3（避免低分噪声）
+    # 局部极大值 = loc_score 比前后窗口都高，且 > 0.6（§22.23 提高 0.3→0.6：
+    # 0.3 太低，训练卡 UI 元素也能达到 → 误判为头像候选。真正头像 loc_score > 0.7）
     # 相邻峰值 y 差 <= _HEAD_NMS_DY 时保留更高分的（真正的 NMS）
     windows.sort()
     peaks: list[tuple[int, float, float, float, str]] = []
@@ -228,7 +234,7 @@ def _find_head_instances(image: Image.Image, panel_rect, assets_dir: Path,
         y, std, loc_score, dedup_score, dedup_name = win
         prev_loc = windows[i - 1][2] if i > 0 else -1.0
         next_loc = windows[i + 1][2] if i < len(windows) - 1 else -1.0
-        if loc_score >= prev_loc and loc_score > next_loc and loc_score > 0.3:
+        if loc_score >= prev_loc and loc_score > next_loc and loc_score > 0.6:
             if not peaks or y - peaks[-1][0] > _HEAD_NMS_DY:
                 peaks.append(win)
             elif loc_score > peaks[-1][2]:
@@ -242,6 +248,40 @@ def _find_head_instances(image: Image.Image, panel_rect, assets_dir: Path,
     return instances
 
 
+def auto_collect_new_heads(image: Image.Image, panel_rect, match_threshold: float = 0.85) -> int:
+    """自动采集新人头入库（live_loop 内调用）。
+
+    沿头像列扫描，对未命中现有模板的新头像自动裁剪并保存为 config/assets/{N}.png。
+    下一帧 count_heads 即生效（动态扫描模板目录）。
+
+    Args:
+        image: 训练选择画面截图（2560x1440）
+        panel_rect: training_select_heads_panel 矩形
+        match_threshold: 去重阈值（§22.20 改 0.85=识别阈值，消除[0.85,0.93)准重复入库）
+
+    Returns:
+        新入库的头像数量
+    """
+    assets_dir = _PROJECT_ROOT / "config" / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = _PROJECT_ROOT / "screenshots" / "head_crops"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    instances = _find_head_instances(image, panel_rect, assets_dir, match_threshold)
+    new_saved = 0
+    for slot_idx, rect, is_dup, score, dedup_name in instances:
+        if is_dup:
+            continue
+        from starsavior_trainer.image_regions import crop_region
+        head_img = crop_region(image, rect)
+        head_img.save(out_dir / f"slot{slot_idx}.png")
+        next_id = _next_template_id(assets_dir)
+        head_img.save(assets_dir / f"{next_id}.png")
+        print(f"[自动入库] 新头像 #{next_id} 槽{slot_idx} y={rect.y}")
+        new_saved += 1
+    return new_saved
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="采集训练选择画面中的支援卡人头模板")
     parser.add_argument("--window-title", default="Star Savior",
@@ -253,8 +293,8 @@ def main() -> None:
                         help="裁剪预览输出目录")
     parser.add_argument("--dry-run", action="store_true",
                         help="只裁剪预览不保存到模板库")
-    parser.add_argument("--match-threshold", type=float, default=0.93,
-                        help="去重模板匹配阈值（默认 0.93）")
+    parser.add_argument("--match-threshold", type=float, default=0.85,
+                        help="去重模板匹配阈值（§22.20 改 0.85=识别阈值，消除准重复入库）")
     parser.add_argument("--resize-crop", type=int, default=None,
                         help="裁剪后统一缩放到此尺寸（如 64，可选）")
     args = parser.parse_args()

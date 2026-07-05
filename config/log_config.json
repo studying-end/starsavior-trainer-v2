@@ -1,0 +1,17 @@
+{
+  "schema": "starsavior.log.v1",
+  "_comment": "per-logger 级别配置。key=get_logger 的 name, value=级别(DEBUG/INFO/WARNING/ERROR)。default_level=未列出的 logger 用此级别。改这个文件控制各子系统日志量(排查 policy 就 policy=DEBUG, 其它 INFO)。无需重启, 下次运行生效。",
+  "default_level": "INFO",
+  "loggers": {
+    "behavior": "INFO",
+    "policy": "INFO",
+    "screens": "INFO",
+    "inspectors": "INFO",
+    "debug_log": "INFO",
+    "vision": "INFO",
+    "classifier": "INFO",
+    "capture": "INFO",
+    "ocr": "WARNING",
+    "round_tracker": "INFO"
+  }
+}

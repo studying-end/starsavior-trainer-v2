@@ -9,7 +9,7 @@ from starsavior_trainer.policy.engine import TrainerPolicy
 class PolicyConfigTest(unittest.TestCase):
     def test_defaults(self) -> None:
         c = PolicyConfig()
-        self.assertEqual(c.min_screen_confidence, 0.75)
+        self.assertEqual(c.min_screen_confidence, 0.65)  # §22.19 0.75→0.65
         self.assertEqual(c.max_training_fail_rate, 30)
         self.assertEqual(c.ring_bonus["rainbow"], 40)
         self.assertEqual(c.early_ring_multiplier, 2.5)
@@ -69,7 +69,7 @@ class TrainerPolicyTest(unittest.TestCase):
 
     def test_decide_low_confidence_pauses(self) -> None:
         policy = TrainerPolicy()
-        obs = Observation(Screen.TRAINING_HUB, 0.5)  # < 0.75
+        obs = Observation(Screen.TRAINING_HUB, 0.5)  # < 0.65
         self.assertEqual(policy.decide(GameState(), obs).kind, "pause")
 
     def test_decide_unknown_screen_pauses_when_no_handler(self) -> None:

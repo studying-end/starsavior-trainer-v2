@@ -18,6 +18,7 @@ Features:
 
 from __future__ import annotations
 
+import json
 import logging
 import sys
 from datetime import date, datetime, timedelta
@@ -27,8 +28,45 @@ from logging.handlers import RotatingFileHandler
 _LOG_ROOT = "starsavior"
 _configured = False
 
-# logs/ lives at the project root (one level up from this package).
+# logs/ + config/ live at the project root (one level up from this package).
 LOG_DIR = Path(__file__).resolve().parents[1] / "logs"
+_LOG_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "log_config.json"
+
+# 缓存: logger name → 级别(从 log_config.json 读)。None=未加载/用默认。
+_log_levels: dict[str, str] | None = None
+_default_level: str = "INFO"
+
+
+def load_log_config() -> tuple[dict[str, str], str]:
+    """读 config/log_config.json → (loggers, default_level)。文件不存在/损坏→空 dict + INFO。
+
+    缓存到模块级 _log_levels/_default_level(apply_log_levels 用)。
+    """
+    global _log_levels, _default_level
+    if _log_levels is not None:
+        return _log_levels, _default_level
+    try:
+        data = json.loads(_LOG_CONFIG_PATH.read_text(encoding="utf-8"))
+        _log_levels = dict(data.get("loggers", {}))
+        _default_level = str(data.get("default_level", "INFO")).upper()
+    except (OSError, json.JSONDecodeError):
+        _log_levels = {}
+        _default_level = "INFO"
+    return _log_levels, _default_level
+
+
+def _level_for(name: str) -> int:
+    """返回 logger name 对应的级别(int)。未配置→default_level。"""
+    levels, default = load_log_config()
+    return getattr(logging, levels.get(name, default).upper(), logging.INFO)
+
+
+def apply_log_levels() -> None:
+    """按 log_config.json 给每个子 logger 设级别(_configure 末尾调用)。"""
+    levels, _ = load_log_config()
+    for name, level_str in levels.items():
+        lvl = getattr(logging, str(level_str).upper(), logging.INFO)
+        logging.getLogger(f"{_LOG_ROOT}.{name}").setLevel(lvl)
 
 
 def _cleanup_old_logs(log_dir: Path, days: int = 7) -> None:
@@ -115,6 +153,9 @@ def _configure() -> None:
     except OSError as e:
         # File logging is best-effort; the console handler still works.
         logger.warning(f"无法创建日志文件: {e}")
+
+    # §22.15 按 log_config.json 给每个子 logger 设级别(per-logger 配置开关)
+    apply_log_levels()
 
     _configured = True
 

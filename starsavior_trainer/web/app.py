@@ -128,6 +128,10 @@ def start_training():
     if friend_name:
         journey_cmd.extend(["--friend", friend_name])
 
+    # 旅程启动必须真点（dry-run 不点击无法推进流程），与 train_cmd 共享 execute_clicks。
+    if data.get("execute_clicks", False):
+        journey_cmd.append("--execute")
+
     # Step 2: Training loop
     train_cmd = [sys.executable, "-m", "starsavior_trainer.cli.live_loop"]
 
@@ -199,9 +203,13 @@ def start_journey():
     cmd.extend(["--card-group", str(card_group)])
 
     # Friend name
-    friend_name = data.get("friend_name", "")
+    friend_name = data.get("friend", "")
     if friend_name:
         cmd.extend(["--friend", friend_name])
+
+    # 旅程启动必须真点（dry-run 不点击无法推进流程）。
+    if data.get("execute_clicks", False):
+        cmd.append("--execute")
 
     # Run in thread
     threading.Thread(target=_run_command, args=(cmd,), daemon=True).start()

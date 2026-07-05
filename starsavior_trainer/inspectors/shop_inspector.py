@@ -14,8 +14,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from PIL import Image
+
 from starsavior_trainer.models import Action, ShopScene
 from starsavior_trainer import shop_db
+from starsavior_trainer.vision import is_blue_region
 
 
 @dataclass
@@ -46,8 +49,11 @@ class ShopInspector:
     # 游戏默认打开 #1, 点已选中的 #1 会*关闭*详情而非打开 → #1 放最后点(此时它非选中态)。
     # 这样每个 effect 都明确归属于点击的那行, 消除首商品 effect 错配导致入库脏数据。
     inspect_order: list[int] = field(default_factory=list)
+    # §22.10 always_buy 商品(如综合营养剂)选中时购买按钮蓝色(能买)的行 idx。
+    # 检视时顺带检测按钮颜色, 蓝色 → 记入此集合, 决策时最高优先购买(无视 priority)。
+    buyable_always: set[int] = field(default_factory=set)
 
-    def decide(self, scene: ShopScene, policy) -> Action | None:
+    def decide(self, scene: ShopScene, policy, image: Image.Image | None = None) -> Action | None:
         items = list(scene.items)
         if not items:
             return None  # let the policy pause — nothing to act on
@@ -62,11 +68,16 @@ class ShopInspector:
             if new_effect == self.last_seen_effect and self.settle_wait < 3:
                 self.settle_wait += 1
                 return Action("skip", None, f"wait for shop item #{self.pending_index} detail to refresh")
-            self.effects[self.pending_index] = new_effect
-            self.last_selected_index = self.pending_index
+            just_recorded_idx = self.pending_index
+            self.effects[just_recorded_idx] = new_effect
+            self.last_selected_index = just_recorded_idx
             self.pending_index = None
             self.last_seen_effect = new_effect
             self.settle_wait = 0
+            # §22.10 always_buy 商品(如综合营养剂)检视时顺带检测购买按钮颜色:
+            # 蓝=能买(有负面旅程状态等触发条件满足)→ 记入 buyable_always, 决策时最高优先买。
+            # 此时 just_recorded_idx 行正被选中, shop_buy_button 颜色反映它能否购买。
+            self._check_always_buy_button(just_recorded_idx, scene, image, policy)
 
         # 1.5) 首次进入交易界面: 排定检视顺序 2→3→...→N→1(§22.8)。
         # 游戏默认打开 #1 → 点已选中的 #1 会*关闭*详情而非打开(与点其它行相反)。
@@ -117,7 +128,25 @@ class ShopInspector:
                 # 重新加载（save_shop 已 upsert）
                 all_entries = shop_db.load_shop(shop_db_path)
 
-        # 4) 按 priority 升序遍历所有商品，找第一个未买的 + class_matches 的买
+        # 4) §22.10 always_buy 商品(如综合营养剂, 能买=按钮蓝色时)最高优先购买, 无视 priority。
+        #    遍历 buyable_always(检视时检测为蓝色的行), 找第一个未买的, 两步确认 select→buy。
+        for idx in self.inspect_order:
+            if idx not in self.buyable_always:
+                continue
+            entry = shop_db.find_shop(all_entries, self.names.get(idx, ""))
+            if entry is None or (entry.effect or entry.name) in self.bought_effects:
+                continue
+            # 已选这行 → 点 buy_button
+            if self.last_selected_index == idx and scene.buy_button is not None:
+                self.bought_effects.add(entry.effect or entry.name)
+                self.last_selected_index = None
+                return Action("click", scene.buy_button, f"购买 shop item #{idx}: {entry.name} (always_buy, 蓝色能买)")
+            # 没选 → 先选这行(下帧再点 buy)
+            self.last_selected_index = idx
+            self.pending_index = None
+            return Action("click", items[idx - 1].target, f"select shop item #{idx}: {entry.name} (always_buy, 蓝色能买)")
+
+        # 5) 按 priority 升序遍历所有商品，找第一个未买的 + class_matches 的买
         #    每件商品需要两次点击：先 select 行，下帧点 buy_button
         for entry in shop_db.filter_buyable(all_entries, character_class, self.bought_effects):
             # 找到这个 entry 对应的行 idx（按 effect 匹配，因为 name OCR 可能不稳）
@@ -156,6 +185,25 @@ class ShopInspector:
             return Action("click", scene.back_button, reason)
         return Action("skip", None, "交易: 没有想买的, 无返回按钮")
 
+    def _check_always_buy_button(self, idx: int, scene: ShopScene, image, policy) -> None:
+        """§22.10 检视时顺带检测: idx 行若是 always_buy 商品, 查购买按钮颜色。
+        蓝(能买, 如综合营养剂有负面状态时)→ 记入 buyable_always; 灰(不能买)→ 不记。
+        此时 idx 行正被选中, scene.buy_button 颜色反映它能否购买。"""
+        if image is None or scene.buy_button is None:
+            return
+        name = self.names.get(idx, "")
+        if not name:
+            return
+        shop_db_path = getattr(policy, "shop_db_path", None)
+        if not shop_db_path:
+            from pathlib import Path
+            shop_db_path = Path(__file__).resolve().parent.parent / "config" / "shop_items.json"
+        entry = shop_db.find_shop(shop_db.load_shop(shop_db_path), name)
+        if entry is None or not entry.always_buy:
+            return
+        if is_blue_region(scene.buy_button, image):
+            self.buyable_always.add(idx)
+
     def reset(self) -> None:
         self.effects = {}
         self.names = {}
@@ -164,3 +212,4 @@ class ShopInspector:
         self.last_selected_index = None
         self.bought_effects = set()
         self.inspect_order = []
+        self.buyable_always = set()

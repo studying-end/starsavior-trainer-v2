@@ -5,6 +5,8 @@ live_loop.py；这些无状态 helper 集中于此，让 live_loop 聚焦迭代�
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from starsavior_trainer.capture import WindowInfo, list_windows
 from starsavior_trainer.ocr import NoopOcrEngine, RapidOcrEngine
 
@@ -82,3 +84,31 @@ def _find_or_exit(title: str) -> WindowInfo:
 def _print_windows() -> None:
     for win in sorted(list_windows(), key=lambda w: w.title.casefold()):
         print(f"  {win.hwnd} {win.rect.width}x{win.rect.height} {win.title}")
+
+
+# ---------------------------------------------------------------------------
+# File-signal control — reliable when the game has keyboard focus
+# ---------------------------------------------------------------------------
+
+# 项目根目录下的信号文件。游戏前台独占键盘时，F11 热键和 Ctrl+C 都可能失效；
+# 在文件管理器/VSCode 里创建这些空文件即可控制 bot，不受键盘独占影响。
+_STOP_FLAG = "stop.flag"
+_PAUSE_FLAG = "pause.flag"
+
+
+def _flag_exists(name: str) -> bool:
+    """True if a flag file exists in the current working directory (project root)."""
+    try:
+        return Path(name).exists()
+    except Exception:
+        return False
+
+
+def stop_requested() -> bool:
+    """急停信号：项目根目录存在 stop.flag 文件 → 退出 bot。"""
+    return _flag_exists(_STOP_FLAG)
+
+
+def pause_requested() -> bool:
+    """暂停信号：项目根目录存在 pause.flag 文件 → 暂停（删除文件恢复）。"""
+    return _flag_exists(_PAUSE_FLAG)

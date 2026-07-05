@@ -1572,6 +1572,158 @@
         "Option 3 is referenced by the note but not visible in this screenshot; record its exact button text when a fuller screenshot is available."
       ],
       "status": "partially_confirmed"
+    },
+    {
+      "id": "训练事件 训练失败",
+      "title": "训练事件 训练失败",
+      "options": [
+        {
+          "index": 1,
+          "text": "今天到此为止！"
+        },
+        {
+          "index": 2,
+          "text": "好，全部破坏掉吧，干脆一点！"
+        },
+        {
+          "index": 3,
+          "text": "拿出活力药水。"
+        }
+      ],
+      "default_rules": [
+        {
+          "profile": "default",
+          "choose_option": 1,
+          "reason": "自动入库默认第1个选项"
+        }
+      ],
+      "status": "auto_inserted"
+    },
+    {
+      "id": "旅程事件 闲暇时间",
+      "title": "旅程事件 闲暇时间",
+      "options": [
+        {
+          "index": 1,
+          "text": "一起去吃限定甜点吧！ ?"
+        },
+        {
+          "index": 2,
+          "text": "一起去看新上映的电影吧！"
+        },
+        {
+          "index": 3,
+          "text": "我们去露营吧！"
+        },
+        {
+          "index": 4,
+          "text": "今天就这样好好休息吧。"
+        }
+      ],
+      "default_rules": [
+        {
+          "profile": "default",
+          "choose_option": 1,
+          "reason": "自动入库默认第1个选项"
+        }
+      ],
+      "status": "auto_inserted"
+    },
+    {
+      "id": "旅程事件 莉赛特的日常",
+      "title": "旅程事件 莉赛特的日常",
+      "options": [
+        {
+          "index": 1,
+          "text": "去帮忙吧。"
+        },
+        {
+          "index": 2,
+          "text": "再等一下看看。"
+        }
+      ],
+      "default_rules": [
+        {
+          "profile": "default",
+          "choose_option": 1,
+          "reason": "自动入库默认第1个选项"
+        }
+      ],
+      "status": "auto_inserted"
+    },
+    {
+      "id": "阿尔克那事件 顾客至上!",
+      "title": "阿尔克那事件 顾客至上!",
+      "options": [
+        {
+          "index": 1,
+          "text": "嗯，今天就早点回去吧。"
+        },
+        {
+          "index": 2,
+          "text": "还是要遵守打烊时间才行。"
+        }
+      ],
+      "default_rules": [
+        {
+          "profile": "default",
+          "choose_option": 1,
+          "reason": "自动入库默认第1个选项"
+        }
+      ],
+      "status": "auto_inserted"
+    },
+    {
+      "id": "旅程事件 工坊的宣传策略",
+      "title": "旅程事件 工坊的宣传策略",
+      "options": [
+        {
+          "index": 1,
+          "text": "付钱购买。"
+        },
+        {
+          "index": 2,
+          "text": "寻找弱点攻掠。"
+        },
+        {
+          "index": 3,
+          "text": "用力量拔出来。"
+        },
+        {
+          "index": 4,
+          "text": "直接走过。"
+        }
+      ],
+      "default_rules": [
+        {
+          "profile": "default",
+          "choose_option": 1,
+          "reason": "自动入库默认第1个选项"
+        }
+      ],
+      "status": "auto_inserted"
+    },
+    {
+      "id": "旅程事件 今日天气一晴朗",
+      "title": "旅程事件 今日天气一晴朗",
+      "options": [
+        {
+          "index": 1,
+          "text": "度过一段悠闲的时光。"
+        },
+        {
+          "index": 2,
+          "text": "按照原定计划度过时间。"
+        }
+      ],
+      "default_rules": [
+        {
+          "profile": "default",
+          "choose_option": 1,
+          "reason": "自动入库默认第1个选项"
+        }
+      ],
+      "status": "auto_inserted"
     }
   ]
 }

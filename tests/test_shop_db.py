@@ -13,6 +13,8 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+from PIL import Image
+
 from starsavior_trainer import shop_db
 from starsavior_trainer.inspectors.shop_inspector import ShopInspector
 from starsavior_trainer.models import Rect, ShopItem, ShopScene
@@ -137,6 +139,28 @@ class FindSaveShopTest(unittest.TestCase):
         """文件损坏 → 空 list。"""
         self.db_path.write_text("not json {{{", encoding="utf-8")
         self.assertEqual(shop_db.load_shop(self.db_path), [])
+
+    def test_save_load_always_buy(self) -> None:
+        """§22.10 always_buy=True 写入 → 读取回来为 True。"""
+        shop_db.save_shop(self.db_path, "综合营养剂", "解除负面", 20, always_buy=True)
+        items = shop_db.load_shop(self.db_path)
+        entry = shop_db.find_shop(items, "综合营养剂")
+        self.assertIsNotNone(entry)
+        self.assertTrue(entry.always_buy)
+
+    def test_always_buy_default_false(self) -> None:
+        """未指定 always_buy → 默认 False（普通商品不强制买）。"""
+        shop_db.save_shop(self.db_path, "普通商品", "效果", 10)
+        items = shop_db.load_shop(self.db_path)
+        self.assertFalse(items[0].always_buy)
+
+    def test_upsert_preserves_always_buy(self) -> None:
+        """§22.10 同 priority: 自动入库(不传 always_buy)时保留用户手填的 always_buy 不被覆盖。"""
+        shop_db.save_shop(self.db_path, "综合营养剂", "解除负面", 20, always_buy=True)
+        # 自动入库再次写入(不传 always_buy=None) → 应保留 True
+        shop_db.save_shop(self.db_path, "综合营养剂", "解除负面(更新)", 25)
+        items = shop_db.load_shop(self.db_path)
+        self.assertTrue(items[0].always_buy)
 
 
 class ShopInspectorIntegrationTest(unittest.TestCase):
@@ -368,6 +392,80 @@ class ShopInspectorIntegrationTest(unittest.TestCase):
         action = inspector.decide(scene_same, self.policy)
         self.assertIn(2, inspector.effects)
         self.assertEqual(inspector.effects[2], "体力4增加")
+
+
+class AlwaysBuyInspectorTest(unittest.TestCase):
+    """§22.10 always_buy 商品(综合营养剂)按钮蓝色检测 + 最高优先购买。"""
+
+    def setUp(self) -> None:
+        self.tmpdir = tempfile.mkdtemp()
+        self.db_path = Path(self.tmpdir) / "shop_items.json"
+        # 综合营养剂 always_buy=True; 普通面包 priority=0 (会买的 priority 商品)
+        shop_db.save_shop(self.db_path, "综合营养剂", "解除负面", 20, always_buy=True)
+        shop_db.save_shop(self.db_path, "普通面包", "HP+10", 50, (), 0)
+        self.policy = TrainerPolicy(shop_db_path=self.db_path, relic_db_path=self.tmpdir + "/r.json")
+        self.scene = ShopScene(
+            items=(
+                ShopItem(name="综合营养剂", price=20, target=Rect(100, 100, 200, 50), effect=""),
+                ShopItem(name="普通面包", price=50, target=Rect(100, 200, 200, 50), effect=""),
+            ),
+            selected_effect="",
+            buy_button=Rect(1000, 800, 100, 50),
+            back_button=Rect(50, 50, 50, 50),
+        )
+
+    def _blue_image(self) -> Image.Image:
+        """构造一张 is_blue_region 判 True 的纯蓝色图(覆盖 buy_button 区域)。"""
+        img = Image.new("RGB", (2560, 1440), (0, 0, 0))
+        # buy_button=(1000,800,100,50) 涂满 muted-blue (h≈210, s≈0.25, v≈0.9) → BlueButtonDetector active
+        from PIL import ImageDraw
+        draw = ImageDraw.Draw(img)
+        draw.rectangle([1000, 800, 1100, 850], fill=(120, 150, 210))
+        return img
+
+    def _gray_image(self) -> Image.Image:
+        """构造一张 is_blue_region 判 False 的灰色图(按钮 inactive)。"""
+        return Image.new("RGB", (2560, 1440), (80, 80, 80))
+
+    def _drive_inspection_2rows(self, inspector, image):
+        """模拟 2→1 顺序检视 2 行, 返回最后一帧(检视完 #1 后的决策)的 action。
+
+        帧1: 点 #2 (inspect_order=[2,1])
+        帧2: #2 effect 显示 → 记 effects[2] + 检测 #2 按钮(非 always_buy 跳过), 点 #1
+        帧3: #1 effect 显示 → 记 effects[1] + 检测 #1 按钮(always_buy 综合营养剂!) + 检视完进入决策
+        """
+        inspector.decide(self.scene, self.policy, image=image)  # 点 #2
+        inspector.decide(replace(self.scene, selected_effect="HP+10"), self.policy, image=image)  # 记#2, 点#1
+        return inspector.decide(replace(self.scene, selected_effect="解除负面"), self.policy, image=image)  # 记#1+决策
+
+    def test_always_buy_blue_button_recorded_as_buyable(self) -> None:
+        """综合营养剂选中时按钮蓝色 → 记入 buyable_always。"""
+        inspector = ShopInspector()
+        self._drive_inspection_2rows(inspector, self._blue_image())
+        # #1 是综合营养剂(always_buy), 按钮蓝 → 应在 buyable_always
+        self.assertIn(1, inspector.buyable_always)
+
+    def test_always_buy_gray_button_not_buyable(self) -> None:
+        """综合营养剂选中时按钮灰色(无负面状态)→ 不在 buyable_always, 不买。"""
+        inspector = ShopInspector()
+        self._drive_inspection_2rows(inspector, self._gray_image())
+        self.assertNotIn(1, inspector.buyable_always)
+
+    def test_always_buy_takes_priority_over_normal(self) -> None:
+        """综合营养剂能买(蓝)时, 优先于 priority=0 的普通面包。"""
+        inspector = ShopInspector()
+        action = self._drive_inspection_2rows(inspector, self._blue_image())
+        # 检视完 → 决策: 应优先选综合营养剂(#1) 而非普通面包(#2, priority=0)
+        self.assertIn("#1", action.reason)
+        self.assertIn("always_buy", action.reason)
+
+    def test_no_always_buy_when_gray_falls_to_priority(self) -> None:
+        """综合营养剂不能买(灰)时, 回落到 priority 体系买普通面包。"""
+        inspector = ShopInspector()
+        action = self._drive_inspection_2rows(inspector, self._gray_image())
+        # 应选普通面包(#2, priority=0), 不是综合营养剂
+        self.assertIn("#2", action.reason)
+        self.assertNotIn("always_buy", action.reason)
 
 
 if __name__ == "__main__":

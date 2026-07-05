@@ -71,13 +71,69 @@
       "name": "皇家奶油义大利",
       "effect": "体力36增加",
       "price": 80,
-      "classes": [],
-      "priority": 99
+      "classes": [
+        "坦克",
+        "辅助"
+      ],
+      "priority": 1
     },
     {
       "name": "普通牛奶",
       "effect": "状态1恢复",
+      "price": 0,
+      "classes": [],
+      "priority": 99,
+      "always_buy": true
+    },
+    {
+      "name": "面组皇家奶油",
+      "effect": "体力36增加",
+      "price": 80,
+      "classes": [
+        "坦克",
+        "辅助"
+      ],
+      "priority": 1
+    },
+    {
+      "name": "早晨咖啡",
+      "effect": "潜质点数20增加",
+      "price": 20,
+      "classes": [],
+      "priority": 0
+    },
+    {
+      "name": "皇家炸蔬菜组",
+      "effect": "专注16增加 保护16增加",
+      "price": 6048,
+      "classes": [],
+      "priority": 99
+    },
+    {
+      "name": "高级奶油义大利面",
+      "effect": "体力12增加",
+      "price": 32,
+      "classes": [],
+      "priority": 99
+    },
+    {
+      "name": "大利面 高级奶",
+      "effect": "体力12增加",
+      "price": 4028,
+      "classes": [],
+      "priority": 99
+    },
+    {
+      "name": "软绵绵的蛋糕",
+      "effect": "潜质点数30增加",
       "price": 30,
+      "classes": [],
+      "priority": 99
+    },
+    {
+      "name": "义大利面 高级奶",
+      "effect": "体力12增加",
+      "price": 4028,
       "classes": [],
       "priority": 99
     }

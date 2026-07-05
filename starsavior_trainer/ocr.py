@@ -17,10 +17,12 @@ from PIL import Image
 #   onnxruntime-gpu 1.27 要的是 cuBLAS 13 (cublasLt64_13.dll)，但 nvidia/cu13/ 无 __init__.py
 #   不能 import，必须按文件路径找。cu11 的 cublas 装到 nvidia/cublas/bin/ 会"遮蔽"
 #   import 结果，但 13 的 DLL 在 nvidia/cu13/bin/x86_64/，加进 PATH 即可。
-for _pkg in ("nvidia.cudnn", "nvidia.cublas", "nvidia.cufft", "nvidia.curand"):
+for _pkg in ("nvidia.cudnn", "nvidia.cublas", "nvidia.cufft", "nvidia.curand", "nvidia.cuda_runtime", "nvidia.cuda_nvrtc", "nvidia.nvjitlink"):
     try:
         _m = __import__(_pkg, fromlist=["x"])
-        _d = os.path.join(os.path.dirname(_m.__file__), "bin")
+        # nvidia.* 是 PEP 420 命名空间包，__file__ 为 None；用 __path__[0] 取实际目录
+        _base = list(_m.__path__)[0] if hasattr(_m, "__path__") else os.path.dirname(_m.__file__)
+        _d = os.path.join(_base, "bin")
         if os.path.isdir(_d):
             os.environ["PATH"] = _d + os.pathsep + os.environ.get("PATH", "")
     except Exception:
@@ -29,7 +31,8 @@ for _pkg in ("nvidia.cudnn", "nvidia.cublas", "nvidia.cufft", "nvidia.curand"):
 # 不能 import）。按 nvidia 包根目录的相对路径找 cu13/bin/x86_64。
 try:
     import nvidia  # type: ignore
-    _cu13_bin = os.path.normpath(os.path.join(nvidia.__file__, "..", "cu13", "bin", "x86_64"))
+    _nv_root = list(nvidia.__path__)[0] if hasattr(nvidia, "__path__") else os.path.dirname(nvidia.__file__)
+    _cu13_bin = os.path.normpath(os.path.join(_nv_root, "cu13", "bin", "x86_64"))
     if os.path.isdir(_cu13_bin):
         os.environ["PATH"] = _cu13_bin + os.pathsep + os.environ.get("PATH", "")
 except Exception:

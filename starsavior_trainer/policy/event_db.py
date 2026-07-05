@@ -115,3 +115,75 @@ def _event_recommended_index(event: dict, build_profile: str) -> int | None:
             if rule.get("profile") == fallback:
                 return rule.get("choose_option")
     return None
+
+
+# ---------------------------------------------------------------------------
+# §22.14 自动入库: find_event_exact(精确判重) + save_event(写 default_rules) + 清缓存
+# ---------------------------------------------------------------------------
+
+
+def _clear_cache() -> None:
+    """清 _EVENT_DB_CACHE, 下次 _load_event_db 重读文件(save_event 后调用)。"""
+    global _EVENT_DB_CACHE
+    _EVENT_DB_CACHE = None
+
+
+def find_event_exact(events: list[dict], title: str) -> dict | None:
+    """按 title 精确查找(判"是否已入库", 不用模糊匹配)。找不到返回 None。"""
+    cleaned = (title or "").strip()
+    if not cleaned:
+        return None
+    for event in events:
+        if event.get("title") == cleaned:
+            return event
+    return None
+
+
+def save_event(
+    title: str,
+    options_text: list[str] | None = None,
+    choose_option: int = 1,
+    path: Path | str | None = None,
+) -> None:
+    """§22.14 自动入库新事件: 写 default_rules choose_option(默认1) → 决策走 db_choice 选第1个。
+
+    已存在(精确名)→ 不覆盖(保留用户手填规则)。新事件 → 写 default_rules + 清缓存。
+    options_text 是各选项的 OCR 文本(仅供查阅, 决策不用)。
+    """
+    p = Path(path) if path is not None else _EVENTS_PATH
+    cleaned_title = (title or "").strip()
+    if not cleaned_title:
+        return
+
+    # 读现有
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {"schema": "starsavior.events.v1", "source": "auto", "events": []}
+    if not isinstance(data, dict):
+        data = {"schema": "starsavior.events.v1", "source": "auto", "events": []}
+    events = data.setdefault("events", [])
+    if not isinstance(events, list):
+        events = []
+        data["events"] = events
+
+    # 已存在(精确名)→ 不覆盖
+    for event in events:
+        if isinstance(event, dict) and event.get("title") == cleaned_title:
+            return
+
+    # 新事件入库
+    options = []
+    for idx, text in enumerate(options_text or [], start=1):
+        options.append({"index": idx, "text": text})
+    events.append({
+        "id": cleaned_title,
+        "title": cleaned_title,
+        "options": options,
+        "default_rules": [
+            {"profile": "default", "choose_option": choose_option, "reason": "自动入库默认第1个选项"}
+        ],
+        "status": "auto_inserted",
+    })
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    _clear_cache()

@@ -11,7 +11,7 @@ from starsavior_trainer.models import Rect
 
 @dataclass(frozen=True)
 class PolicyConfig:
-    min_screen_confidence: float = 0.75
+    min_screen_confidence: float = 0.65  # §22.19 0.75→0.65: blessing_choice 实机置信度 0.70，0.75 会被误拦 pause
     max_training_fail_rate: int = 30  # 早期游戏 inspector 失败率阈值（training_score 用动态 §22.4）
     # §22.4 失败率上限随训练值 gain 线性放宽：max_fail = min(99, base + slope×gain)。
     # 理由：训练成功=+gain, 失败=0+降心情(可恢复); gain 越高收益越大于失败代价, 越值得赌。
@@ -76,6 +76,27 @@ class PolicyConfig:
     # Early-game rings matter more (proficiency compounds), so amplify the
     # ring_bonus inside the early window. 1.0 = no amplification.
     early_ring_multiplier: float = 2.5
+    # §22.11 地区移动目的地→角色类型映射。第二次地区移动(弗洛拉/卡莱德)按角色类型选:
+    # 弗洛拉=术士/游侠/突击者(力量+专注加成), 卡莱德=坦克/辅助(体力+保护加成)。
+    # 第一次(阿卡农)只有1个目的地, 不在映射里 → fallback 点 destination_1。
+    # key=目的地 OCR 名, value=该目的地适合的角色类型列表。
+    region_destinations: dict[str, tuple[str, ...]] = field(
+        default_factory=lambda: {
+            "弗洛拉": ("术士", "游侠", "突击者"),
+            "卡莱德": ("坦克", "辅助"),
+        }
+    )
+    # §22.11 必定为地区移动的回合(N/45)。这些回合若画面识别为 UNKNOWN, 用回合数兜底
+    # 强制按 region_move 决策(避免 region_move 分类失败时误点中心推进)。
+    region_move_rounds: frozenset[int] = field(default_factory=lambda: frozenset({15, 30}))
+    # §22.13 潜质学习配置。
+    # run_type: "battle"(战斗马, 用 battle_priority) / "breeding"(种马, 用 breeding_priority)。
+    #   运行前配置(第二步加 --run-type 参数, 本次先硬编码 battle)。
+    # skill_min_points: 进技能界面的最低潜质点数(太少不值得进)。
+    # skill_max_learn: 单次技能界面最多学几个潜质(防死循环)。
+    run_type: str = "battle"
+    skill_min_points: int = 50
+    skill_max_learn: int = 20
     # 组合圣遗物(队员全体)按部位属性 + build 优先级选: 在当前3张里选优先级最高的属性;
     # 优先级里都没出现则随便选(取第一张). 属性 key: attack/crit_rate/crit_dmg/hp/defense/hit/resist/speed.
     relic_attribute_priority_by_profile: dict[str, tuple[str, ...]] = field(

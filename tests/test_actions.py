@@ -125,36 +125,57 @@ def _region_move_profile() -> RegionProfile:
         (2560, 1440),
         {
             "region_move_destination_1": Rect(1800, 400, 300, 80),
+            "region_move_destination_1_name": Rect(1820, 405, 200, 50),
+            "region_move_destination_2": Rect(1800, 520, 300, 80),
+            "region_move_destination_2_name": Rect(1820, 525, 200, 50),
             "region_move_go_button": Rect(1200, 1000, 200, 60),
         },
     )
 
 
 class RegionMoveParserTest(unittest.TestCase):
-    def test_returns_destination_when_no_go_text(self) -> None:
+    def test_returns_destinations_when_no_go_text(self) -> None:
+        """§22.11 无前往按钮 → 返回 RegionMoveStatus(destinations 填充, go_button=None)。"""
         from starsavior_trainer.screens.region_move import parse_region_move
 
         texts = [
             RegionText("region_move_anchor_title", "地区移动", 0.9),
             RegionText("region_move_station_title", "列车月台", 0.9),
+            RegionText("region_move_destination_1_name", "弗洛拉", 0.9),
+            RegionText("region_move_destination_2_name", "卡莱德", 0.9),
         ]
 
-        rect = parse_region_move(texts, _region_move_profile())
+        payload = parse_region_move(texts, _region_move_profile())
 
-        self.assertEqual(rect, _region_move_profile().regions["region_move_destination_1"])
+        self.assertIsNotNone(payload)
+        self.assertTrue(payload.is_region_move)
+        self.assertIsNone(payload.go_button)
+        self.assertEqual(len(payload.destinations), 2)
+        self.assertEqual(payload.destinations[0].name, "弗洛拉")
+        self.assertEqual(payload.destinations[1].name, "卡莱德")
 
     def test_returns_go_button_when_go_present(self) -> None:
+        """§22.11 有前往按钮(已选目的地)→ go_button 填充。"""
         from starsavior_trainer.screens.region_move import parse_region_move
 
         texts = [
             RegionText("region_move_anchor_title", "地区移动", 0.9),
             RegionText("region_move_station_title", "列车月台", 0.9),
+            RegionText("region_move_destination_1_name", "弗洛拉", 0.9),
             RegionText("region_move_go_button", "前往", 0.9),
         ]
 
-        rect = parse_region_move(texts, _region_move_profile())
+        payload = parse_region_move(texts, _region_move_profile())
 
-        self.assertEqual(rect, _region_move_profile().regions["region_move_go_button"])
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload.go_button, _region_move_profile().regions["region_move_go_button"])
+
+    def test_returns_none_when_anchors_missing(self) -> None:
+        """非 region_move 画面(锚点未命中)→ None。"""
+        from starsavior_trainer.screens.region_move import parse_region_move
+
+        texts = [RegionText("region_move_anchor_title", "距离目标", 0.9)]  # 非地区移动
+        self.assertIsNone(parse_region_move(texts, _region_move_profile()))
 
 
 def _battle_profile() -> RegionProfile:

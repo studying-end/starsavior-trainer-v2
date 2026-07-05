@@ -21,6 +21,81 @@
       "attributes": [
         "attack"
       ]
+    },
+    {
+      "name": "unknown_relic_3",
+      "effect_text": "使用格调差异时，自身暴击率增加 50%。发生暴击时，自身获得额外",
+      "attributes": [
+        "crit_rate"
+      ]
+    },
+    {
+      "name": "观赏用吸血植物",
+      "effect_text": "使用普攻后，恢复自身的生命 力。恢复量依自身攻击力比例增 加。每3回合仅触发1次。",
+      "attributes": [
+        "attack",
+        "hp"
+      ]
+    },
+    {
+      "name": "双重角笛",
+      "effect_text": "使用非攻击类技能后，对全体敌 人造成与自身最大生命力成比例 的连锁伤害。",
+      "attributes": [
+        "hp"
+      ]
+    },
+    {
+      "name": "临阵不退",
+      "effect_text": "受到攻击时，自身的目前生命力 不会降至20%以下。战斗中仅触 发1次。",
+      "attributes": [
+        "hp"
+      ]
+    },
+    {
+      "name": "unknown_relic_1",
+      "effect_text": "队员全体",
+      "attributes": []
+    },
+    {
+      "name": "unknown_relic_2",
+      "effect_text": "队员全体",
+      "attributes": []
+    },
+    {
+      "name": "收割伤痕之镰",
+      "effect_text": "攻击后，若敌人的生命力低于 75%、50%、25%时，达到每个 生命力条件时，有100%几率造 成1回合失血，最多可套用至3",
+      "attributes": [
+        "hp"
+      ]
+    },
+    {
+      "name": "活版印刷",
+      "effect_text": "普攻攻击时，若自身持有的强化 效果超过3个以上，则自身的强韧 度伤害增加1。",
+      "attributes": []
+    },
+    {
+      "name": "债主的策略",
+      "effect_text": "使用普攻后，使自身的特殊技冷 却时间缩短1回合。每3回合仅触 发1次。",
+      "attributes": []
+    },
+    {
+      "name": "启示录新型铠甲",
+      "effect_text": "首次战斗开始时，自身的最大生 命力增加4%",
+      "attributes": [
+        "hp"
+      ]
+    },
+    {
+      "name": "启示录新型披风",
+      "effect_text": "首次战斗开始时，自身的效果抗 性增加8%",
+      "attributes": []
+    },
+    {
+      "name": "启示录新型帽子",
+      "effect_text": "首次战斗开始时，自身的暴击率 增加5%",
+      "attributes": [
+        "crit_rate"
+      ]
     }
   ]
 }

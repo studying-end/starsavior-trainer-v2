@@ -38,6 +38,7 @@ from starsavior_trainer.models import (
     GoalDialogStatus,
     JourneyStart,
     Rect,
+    RegionMoveStatus,
     RelicChoice,
     RelicOption,
     RestSubmenu,
@@ -151,6 +152,11 @@ def _decide_training_hub(obs, state, policy):
         if getattr(policy, "_needs_goal_round", False) and obs.payload.goal_button is not None:
             policy._needs_goal_round = False
             return Action("click", obs.payload.goal_button, "hub: 点目标按钮读 N/45 校准回合数")
+        # §22.13 潜质学习入口: can_learn_skill + 未学过 → 点潜质按钮进技能窗口。
+        # _skill_done 防"学完回大厅 can_learn_skill 仍 True → 死循环"(回合变化时重置)。
+        # 不依赖 potential_points(大厅读不稳; 潜质窗口里由 SkillInspector 读)。
+        if obs.payload.can_learn_skill and obs.payload.skill_button is not None and not getattr(policy, "_skill_done", False):
+            return Action("click", obs.payload.skill_button, "hub: 进潜质学习")
         if obs.payload.has_commission_alert and obs.payload.commission_button is not None:
             return Action("click", obs.payload.commission_button, "training hub, commission alert")
         if obs.payload.has_shop_alert and obs.payload.shop_button is not None:
@@ -178,7 +184,10 @@ def _decide_rest_submenu(obs, state, policy):
 
 def _decide_event_choice(obs, state, policy):
     if not _is_iterable_of(obs.payload, EventOption):
-        return Action("pause", None, "event screen missing options")
+        # §22.21 event_choice 分类但 parse 不出选项 → 可能是 D-DAY 评鉴战结果画面
+        # （"旅程事件"标题导致误分类，实际是"在基础评鉴战中获胜了！"结果展示）或 OCR 偶发失败。
+        # 点屏幕中心推进（同 relic_choice 兜底），避免 pause 卡死。
+        return Action("click", policy.config.screen_center, "event screen no options, click center to advance")
     return policy.decide_event(obs.payload, state)
 
 
@@ -234,9 +243,35 @@ def _decide_post_training(obs, state, policy):
 
 
 def _decide_region_move(obs, state, policy):
-    if not isinstance(obs.payload, Rect):
+    """§22.11 地区移动决策: 已选目的地→点前往; 否则按角色类型选目的地。
+
+    多目的地(弗洛拉/卡莱德)按 region_destinations 映射 + state.character_class 选;
+    第一次(阿卡农)只有1个目的地或角色类型未知 → fallback 点 destination_1。
+    """
+    payload = obs.payload
+    # 兼容旧裸 Rect payload(理论上不再出现, parser 已改返回 RegionMoveStatus)。
+    if isinstance(payload, Rect):
+        return Action("click", payload, "region move: 选目的地/前往(legacy)")
+    if not isinstance(payload, RegionMoveStatus):
         return Action("pause", None, "region move screen, no target parsed")
-    return Action("click", obs.payload, "region move: 选目的地/前往")
+    # 旧屏兼容: 只有 go_button(移动按钮), 直接点。
+    if payload.go_button is not None and not payload.destinations:
+        return Action("click", payload.go_button, "region move: 点移动按钮(旧屏)")
+    # 已选目的地(go_button 亮)→ 点前往。
+    if payload.go_button is not None:
+        return Action("click", payload.go_button, "region move: 点前往(已选目的地)")
+    # 选目的地: 按角色类型匹配 region_destinations 映射。
+    character_class = getattr(state, "character_class", None)
+    if character_class and payload.destinations:
+        for dest in payload.destinations:
+            classes = policy.config.region_destinations.get(dest.name)
+            if classes and character_class in classes:
+                return Action("click", dest.rect, f"region move: 选 {dest.name}({character_class} 加成)")
+    # fallback: 角色类型未知 / 无匹配 / 第一次阿卡农(不在映射) → 点第一个目的地。
+    if payload.destinations:
+        first = payload.destinations[0]
+        return Action("click", first.rect, f"region move: 选 {first.name or '目的地#1'}(fallback)")
+    return Action("pause", None, "region move: 无目的地可选")
 
 
 def _decide_game_menu(obs, state, policy):

@@ -9,6 +9,7 @@ from collections.abc import Iterable
 
 from starsavior_trainer.models import Action, CommissionChoice, GameState, RelicChoice, RelicOption
 from starsavior_trainer import relic_db
+from starsavior_trainer.behavior import narrate
 from starsavior_trainer.text_utils import parse_first_int
 
 
@@ -40,6 +41,7 @@ class RelicCommissionMixin:
             if entry is None and option.effect_text:
                 # 自动入库: 名字 + effect_text → 解析 attributes 后写入
                 relic_db.save_relic(self.relic_db_path, option.name, option.effect_text, attributes)
+                narrate(f"[奖励入库] {option.name} | {option.effect_text} | {attributes}")
             # 2. 按角色优先级组打分
             priority_score = relic_db.score_relic_by_priority(attributes, group)
             score_num = option.score or 0
@@ -50,6 +52,7 @@ class RelicCommissionMixin:
         best = scored[0][3]
         best_score = scored[0][0]
         attrs_str = ",".join(best.attributes) if best.attributes else "(none)"
+        narrate(f"[奖励决策] 选 {best.name}[{attrs_str}] (priority={best_score}, {group})")
         return Action(
             "click",
             best.target,
@@ -138,6 +141,8 @@ class RelicCommissionMixin:
             best = choice.options[0]
         if self._pending_commission == best.target and choice.accept_button is not None:
             self._pending_commission = None
+            narrate(f"[委托决策] 接受 {best.name}")
             return Action("click", choice.accept_button, f"accept commission: {best.name}")
         self._pending_commission = best.target
+        narrate(f"[委托决策] 选 {best.name}")
         return Action("click", best.target, f"select commission: {best.name}")

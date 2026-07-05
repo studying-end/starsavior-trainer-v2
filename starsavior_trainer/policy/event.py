@@ -7,11 +7,14 @@ from __future__ import annotations
 from collections.abc import Iterable
 
 from starsavior_trainer.models import Action, EventOption, GameState
+from starsavior_trainer.behavior import narrate
 from starsavior_trainer.policy.event_db import (
     DEFAULT_EVENT_KEYWORDS,
     _event_recommended_index,
     _load_event_db,
     _match_event,
+    find_event_exact,
+    save_event,
 )
 
 
@@ -36,13 +39,24 @@ class EventMixin:
     def _event_db_choice(
         self, options: list[EventOption], state: GameState | None
     ) -> tuple[EventOption, str] | None:
-        """Look the event up in config/events.json and return its recommended option."""
+        """Look the event up in config/events.json and return its recommended option.
+
+        §22.14 未入库事件 → 自动入库(写 default_rules choose_option:1)→ 重新匹配选第1个。
+        """
         if not options:
             return None
         title = options[0].event_title
         if not title:
             return None
-        event = _match_event(title, _load_event_db())
+        events = _load_event_db()
+        event = _match_event(title, events)
+        # §22.14 未入库(精确名也找不到)→ 自动入库 + 写默认规则 choose_option:1
+        if event is None and find_event_exact(events, title) is None:
+            options_text = [o.text for o in options]
+            save_event(title, options_text, choose_option=1)
+            narrate(f"[事件入库] {title} | 选项: {options_text} | 默认选第1个")
+            events = _load_event_db()  # save_event 已清缓存, 重读
+            event = _match_event(title, events)
         if event is None:
             return None
         profile = state.build_profile if state else "balanced"

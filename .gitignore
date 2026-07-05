@@ -13,3 +13,6 @@ venv/
 .trae/
 nul
 _test_capture.png
+# 文件信号控制（急停/暂停）
+stop.flag
+pause.flag

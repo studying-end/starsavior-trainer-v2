@@ -266,6 +266,25 @@ class GoalDialogStatus:
 
 
 @dataclass(frozen=True)
+class RegionDestination:
+    """地区移动的一个目的地(如弗洛拉/卡莱德/阿卡农)。name 来自 OCR, rect 是点击行。"""
+    name: str
+    rect: Rect
+
+
+@dataclass(frozen=True)
+class RegionMoveStatus:
+    """地区移动(列车月台)解析结果。§22.11 多目的地按角色类型选。
+
+    destinations 是右侧目的地列表(每行 name+rect); go_button 是"前往"按钮(选中目的地后出现)。
+    is_region_move 锚点是否命中——供回合数兜底用(第15/30回合 UNKNOWN 时尝试 region_move)。
+    """
+    destinations: tuple[RegionDestination, ...] = ()
+    go_button: Rect | None = None
+    is_region_move: bool = False
+
+
+@dataclass(frozen=True)
 class EventFastForwardSetting:
     no_fast_forward_option: Rect
     watched_only_option: Rect
@@ -294,6 +313,19 @@ class SkillOption:
     effect: str | None = None
     cost: int | None = None
     target: Rect | None = None
+
+
+@dataclass(frozen=True)
+class SkillLearnOption:
+    """潜质学习选项(§22.13)。含模板库优先级 + 原价(算折扣) + 当前状态 + 等级 + 习得按钮。"""
+    name: str
+    price: int | None = None  # 当前价格(含折扣)
+    original_price: int | None = None  # 原价(按 kind 推断, 算折扣用)
+    priority: int = 99  # 模板库优先级(battle/breeding, 由 run_type 决定用哪个)
+    status: str = ""  # "未习得"/"升级"
+    level: int = 0  # 当前等级(0=未习得, 1-4=可升级, 满级5不出现)
+    target: Rect | None = None  # 习得/升级按钮 rect
+    target: Rect | None = None  # 习得按钮 rect
 
 
 @dataclass(frozen=True)

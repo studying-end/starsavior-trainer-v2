@@ -1,0 +1,110 @@
+{
+  "schema": "starsavior.skills.v1",
+  "skills": [
+    {
+      "name": "洞察感知",
+      "effect": "",
+      "kind": "感知",
+      "battle_priority": 3,
+      "breeding_priority": 99
+    },
+    {
+      "name": "破坏感知",
+      "effect": "",
+      "kind": "感知",
+      "battle_priority": 3,
+      "breeding_priority": 99
+    },
+    {
+      "name": "保护感知",
+      "effect": "",
+      "kind": "感知",
+      "battle_priority": 99,
+      "breeding_priority": 99
+    },
+    {
+      "name": "攻击技巧",
+      "effect": "",
+      "kind": "技巧",
+      "battle_priority": 2,
+      "breeding_priority": 99
+    },
+    {
+      "name": "洞察技巧",
+      "effect": "",
+      "kind": "技巧",
+      "battle_priority": 2,
+      "breeding_priority": 99
+    },
+    {
+      "name": "攻击天赋",
+      "effect": "",
+      "kind": "天赋",
+      "battle_priority": 1,
+      "breeding_priority": 99
+    },
+    {
+      "name": "洞察天赋",
+      "effect": "",
+      "kind": "天赋",
+      "battle_priority": 1,
+      "breeding_priority": 99
+    },
+    {
+      "name": "攻击感知",
+      "effect": "",
+      "kind": "感知",
+      "battle_priority": 3,
+      "breeding_priority": 99
+    },
+    {
+      "name": "速度感知",
+      "effect": "",
+      "kind": "感知",
+      "battle_priority": 2,
+      "breeding_priority": 99
+    },
+    {
+      "name": "速度星痕",
+      "effect": "",
+      "kind": "通用",
+      "battle_priority": 0,
+      "breeding_priority": 99
+    },
+    {
+      "name": "洞察星痕",
+      "effect": "",
+      "kind": "通用",
+      "battle_priority": 0,
+      "breeding_priority": 99
+    },
+    {
+      "name": "锐利攻势",
+      "effect": "",
+      "kind": "通用",
+      "battle_priority": 0,
+      "breeding_priority": 99
+    },
+    {
+      "name": "坚固的破坏",
+      "effect": "",
+      "kind": "通用",
+      "battle_priority": 0,
+      "breeding_priority": 99
+    },
+    {
+      "name": "深红誓约",
+      "effect": "",
+      "kind": "通用",
+      "battle_priority": 0,
+      "breeding_priority": 99
+    },
+    {
+      "name": "星光轨迹一EX5号",
+      "effect": "",
+      "kind": "通用",
+      "battle_priority": 0,
+      "breeding_priority": 99
+    }
+  ]
+}

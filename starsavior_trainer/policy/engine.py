@@ -14,6 +14,7 @@ from starsavior_trainer.policy.event import EventMixin
 from starsavior_trainer.policy.relic_commission import RelicCommissionMixin
 from starsavior_trainer.policy.shop_skill import ShopSkillMixin
 from starsavior_trainer.policy.simple import SimpleMixin
+from starsavior_trainer.policy.skill_learn import SkillLearnMixin
 from starsavior_trainer.policy.training import TrainingMixin
 
 
@@ -25,6 +26,7 @@ class TrainerPolicy(
     EventMixin,
     RelicCommissionMixin,
     ShopSkillMixin,
+    SkillLearnMixin,
 ):
     def __init__(self, config: PolicyConfig | None = None, relic_db_path: "Path | str | None" = None, shop_db_path: "Path | str | None" = None):
         self.config = config or PolicyConfig()
@@ -38,6 +40,8 @@ class TrainerPolicy(
         if shop_db_path is None:
             shop_db_path = Path(__file__).resolve().parent.parent.parent / "config" / "shop_items.json"
         self.shop_db_path = shop_db_path
+        # §22.13 潜质模板库 JSON 路径（SkillInspector 用）。默认 config/skills.json。
+        self.skill_db_path = Path(__file__).resolve().parent.parent.parent / "config" / "skills.json"
         self._pending_commission: Rect | None = None
         # Two-step relic confirm: remembers the relic card we clicked so the next
         # call clicks 确认 instead of re-evaluating "best" every frame. Without this
@@ -78,6 +82,9 @@ class TrainerPolicy(
         # §22.9: 需要读目标弹窗 N/45 校准回合数。live_loop 在旅程首次进大厅 / 日期变化时置 True,
         # _decide_training_hub 见此标志优先点 goal_button → 下帧 GOAL_DIALOG 读 N/45。
         self._needs_goal_round: bool = False
+        # §22.13 潜质学习已完成(SkillInspector 退出时设 True)。防回大厅后 can_learn_skill
+        # 仍 True → 重复进潜质窗口死循环。新旅程/回合变化时重置(下次再学)。
+        self._skill_done: bool = False
 
     def decide(self, state: GameState, observation: Observation) -> Action:
         if observation.confidence < self.config.min_screen_confidence:

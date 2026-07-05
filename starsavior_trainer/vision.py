@@ -324,6 +324,9 @@ def _is_head_template(path) -> bool:
 
 
 _HEAD_MATCH_THRESHOLD = 0.85
+# §22.20 count_heads 位置 NMS 距离：同一位置(dy<NMS_DY)的多模板命中只算一颗头。
+# 头像间距约 109px，NMS_DY=60 同 collect_head_templates._HEAD_NMS_DY，足够区分不同头像。
+_HEAD_NMS_DY = 60
 
 # 羁绊达标(人头下方进度条变黄)检测: 黄色 HSV 范围 + 占比阈值(§22.5)。CV 实测达标进度条
 # 在人头下方 +3~+20px, 黄色像素占比 ~34%。
@@ -356,11 +359,15 @@ def count_heads(image: Image.Image, search_region: Rect | None = None) -> int:
 
     每个支援卡头像是**固定角色**(每回合只是分配到不同训练)，存为 config/assets/
     新库模板 N.png（纯数字命名，如 1.png、2.png，不含羁绊进度条）。对每个模板
-    matchTemplate，得分 > _HEAD_MATCH_THRESHOLD 即该头在场，数命中数。旧库
-    counting_head_*.png / non_counting_head_*.png 保留为遗留不再使用。
+    matchTemplate，得分 > _HEAD_MATCH_THRESHOLD 即该头在场。**§22.20 位置 NMS**：
+    同一位置(dy < _HEAD_NMS_DY)的多模板命中只算一颗头——避免模板库里有相似模板
+    (同一颗头的多次裁剪)导致重复计数。旧库 counting_head_*.png / non_counting_head_*.png
+    保留为遗留不再使用。
 
-    search_region 默认 None = **全图搜**（人头位置每回合变、且可能延伸到卡片区，
-    限定小区域会把头切边导致漏匹配，故默认全图；模板足够独特不会误匹配卡片 UI）。
+    search_region 默认 None = 全图搜。**§22.22 修复**：调用方应传入
+    training_select_heads_panel 区域——全图搜索会误匹配训练卡内的 UI 元素
+    （speed 卡 y=929 远在头像面板 y=130-390 之外，但模板仍可能匹配其内部元素），
+    导致 count_heads 对无人头的训练卡误计为有人头。限定到头像面板后只搜头像区域。
     比旧 std/edge 法准：精确数同卡多头(2+)、不误判不作数头。实机验证 guts=2 /
     wisdom=1 / speed(不作数)=0 全对。新支援卡头像可用 collect_head_templates 工具裁剪入库（新库命名 N.png）。
     """
@@ -372,7 +379,8 @@ def count_heads(image: Image.Image, search_region: Rect | None = None) -> int:
         assets = Path(__file__).resolve().parent.parent / "config" / "assets"
         src = image if search_region is None else crop_region(image, search_region)
         search = cv2.cvtColor(np.array(src.convert("RGB")), cv2.COLOR_RGB2BGR)
-        count = 0
+        # §22.20 收集所有模板命中(得分>阈值)的位置，后续 NMS 去重
+        hits: list[tuple[int, int, float, int, int]] = []  # (x, y, score, tpl_w, tpl_h)
         for tpl_path in sorted(assets.glob("*.png")):
             if not _is_head_template(tpl_path):
                 continue
@@ -380,12 +388,23 @@ def count_heads(image: Image.Image, search_region: Rect | None = None) -> int:
             if tpl is None or tpl.shape[0] > search.shape[0] or tpl.shape[1] > search.shape[1]:
                 continue
             res = cv2.matchTemplate(search, tpl, cv2.TM_CCOEFF_NORMED)
-            if float(res.max()) > _HEAD_MATCH_THRESHOLD:
+            score = float(res.max())
+            if score > _HEAD_MATCH_THRESHOLD:
                 _, _, _, loc = cv2.minMaxLoc(res)
-                # §22.5: 羁绊达标(下方进度条变黄)的人头不计入作数 → decide_early_game
-                # 优先未达标支援卡所在训练, 让全员尽快达标触发闪光训练。
-                if not _is_bond_maxed(search, loc, tpl.shape[1], tpl.shape[0]):
-                    count += 1
+                hits.append((loc[0], loc[1], score, tpl.shape[1], tpl.shape[0]))
+        if not hits:
+            return 0
+        # §22.20 NMS: 按得分降序，同位置(dy < _HEAD_NMS_DY)只保留最高分
+        hits.sort(key=lambda h: -h[2])
+        kept: list[tuple[int, int, float, int, int]] = []
+        for x, y, score, tw, th in hits:
+            if all(abs(y - ky) >= _HEAD_NMS_DY or abs(x - kx) >= _HEAD_NMS_DY for kx, ky, _, _, _ in kept):
+                kept.append((x, y, score, tw, th))
+        # 对 NMS 后的每个命中检查羁绊达标
+        count = 0
+        for x, y, score, tw, th in kept:
+            if not _is_bond_maxed(search, (x, y), tw, th):
+                count += 1
         return count
     except Exception as e:
         logger.debug(f"[count_heads] head count failed: {e}")

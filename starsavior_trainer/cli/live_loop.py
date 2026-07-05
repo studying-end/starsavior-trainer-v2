@@ -46,9 +46,9 @@ from starsavior_trainer.cli.pause import PauseController, install_pause_hotkey
 from starsavior_trainer.cli.runtime import (
     _create_ocr,
     _find_or_exit,
-    _is_corner_point,
-    _mouse_at_screen_corner,
     _print_windows,
+    pause_requested,
+    stop_requested,
 )
 from starsavior_trainer.executor import DryRunExecutor, PyAutoGuiExecutor, map_action_to_rect
 from starsavior_trainer.inspectors.commission_inspector import CommissionInspector
@@ -86,11 +86,15 @@ logger = get_logger("live_loop")
 # advance" request) — but still classifies before every click, so we never click
 # blindly into the screen that comes next.
 _ADVANCE_SCREENS = frozenset({Screen.DIALOGUE, Screen.POST_TRAINING, Screen.REWARD})
-_ADVANCE_SLEEP = 0.35
+_ADVANCE_SLEEP = 0.25  # §22.19 0.35→0.25: 实机验证游戏响应足够快，缩短推进画面等待
 # TRAINING_SELECT: the inspector clicks 力量/体力/韧性 in quick succession on the
 # SAME screen (no transition) — it only needs the preview gain to render, not the
 # full --interval. Use a short re-capture sleep so picking a training is snappy.
-_TRAINING_SELECT_SLEEP = 0.5
+_TRAINING_SELECT_SLEEP = 0.35  # §22.19 0.5→0.35: 训练卡预览渲染快，缩短检视间隔
+# §22.16 卡死保护：同一画面连续停留超此时长(秒)则停止脚本，防 inspector/决策
+# 死循环无限占用游戏。inspector 多帧检视(SHOP/TRAINING_SELECT)正常 <15s，
+# 30s 足够宽松；可通过 --stuck-timeout 覆盖，设 0 关闭。
+_STUCK_TIMEOUT = 30.0
 
 
 def main() -> None:
@@ -98,7 +102,7 @@ def main() -> None:
     parser.add_argument("--profile", default="config/regions/2560x1440.json", help="Region profile path.")
     parser.add_argument("--window-title", default="StarSavior", help="Game window title substring.")
     parser.add_argument("--execute", action="store_true", help="Execute clicks (default: dry-run).")
-    parser.add_argument("--interval", type=float, default=0.5, help="Seconds between loop iterations (default 0.5).")
+    parser.add_argument("--interval", type=float, default=0.3, help="Seconds between loop iterations (default 0.3).")  # §22.19 0.5→0.3
     parser.add_argument("--max-iterations", type=int, default=0, help="Max iterations (0 = unlimited).")
     parser.add_argument("--use-paddle", action="store_true", help="Use real OCR (RapidOCR; default: noop). 旧名保留兼容 web UI。")
     parser.add_argument("--ocr-engine", choices=("auto", "gpu", "cpu"), default="auto", help="OCR engine: auto (default, GPU 优先回退 CPU) / gpu (强制 GPU) / cpu (强制 CPU).")
@@ -117,6 +121,12 @@ def main() -> None:
         "--build-profile",
         default="balanced",
         help="Build profile: balanced, power_focus, focus_focus, durability_focus, stamina_tank, protection_focus.",
+    )
+    parser.add_argument(
+        "--stuck-timeout",
+        type=float,
+        default=_STUCK_TIMEOUT,
+        help=f"卡死保护：同一画面停留超此秒数则停止(默认 {_STUCK_TIMEOUT:g})。设 0 关闭。",
     )
     args = parser.parse_args()
 
@@ -151,12 +161,21 @@ def main() -> None:
     print(f"character_class={state.character_class or '(unknown)'}")
     round_tracker = RoundTracker()
     executor = PyAutoGuiExecutor() if args.execute else DryRunExecutor()
-    # --debug 模式才加载详细日志系统（正常模式不 import，零开销）。详见 debug_log.py。
+    # §22.15 debug_log 改 logging(受 log_config.json 的 "debug_log" 级别控制)。
+    # --debug 时强制 DEBUG 级(覆盖配置); 无 --debug 时由 log_config.json 控制
+    # (默认 INFO=不输出每帧 dump, 改 config 里 debug_log=DEBUG 等效 --debug)。
     debug_log = None
     if args.debug:
+        import logging
         from starsavior_trainer import debug_log as _debug_log
+        from starsavior_trainer.logging_setup import _LOG_ROOT
+        logging.getLogger(f"{_LOG_ROOT}.debug_log").setLevel(logging.DEBUG)
         debug_log = _debug_log
         print("[调试模式] 每帧详细日志已启用（识别 payload + 决策 Action）")
+    else:
+        # 无 --debug: 仍加载 debug_log(受配置控制), 配置里 debug_log=DEBUG 时也会输出
+        from starsavior_trainer import debug_log as _debug_log
+        debug_log = _debug_log
     ocr = _create_ocr(args.use_paddle, args.ocr_engine)
     blue_detector = BlueButtonDetector() if (args.blue_mode or args.hybrid_mode) else None
 
@@ -182,29 +201,29 @@ def main() -> None:
     # Steam's screenshot key and gets swallowed before our hook sees it.)
     pause = PauseController()
     install_pause_hotkey(pause, key="f11")
+    print("[控制] 急停: 创建 stop.flag 文件 / Ctrl+C | 暂停: 创建 pause.flag 文件 / F11")
 
     iteration = 0
     consecutive_character_confirms = 0
     last_character_click_target = None
     consecutive_unknown = 0
     was_paused = False
+    prev_screen: Screen | None = None  # §22.15 上一帧画面(检测画面变化记轨迹)
+    stuck_screen: Screen | None = None  # §22.16 卡死保护：当前停滞画面
+    stuck_since = 0.0  # §22.16 进入当前画面的时间戳
     try:
         while args.max_iterations == 0 or iteration < args.max_iterations:
-            # Mouse-corner emergency stop, checked FIRST every iteration. The most
-            # reliable "reclaim control" path: move the mouse into any screen
-            # corner and the bot exits cleanly. Beats both the keyboard hotkey
-            # (swallowed by a focused admin/Steam window) and pyautogui's
-            # exact-pixel FAILSAFE (needs a precise landing pixel at the exact
-            # moment pyautogui is called) — this polls a whole corner region at
-            # the top of the loop, independent of focus/privilege/timing.
-            if args.execute and _mouse_at_screen_corner():
-                print("\n[急停] 鼠标移到屏幕角落，已停止 bot，控制权交还。")
+            # 文件信号控制（游戏前台独占键盘时，F11/Ctrl+C 可能失效，改用文件信号）：
+            # - stop.flag 存在 → 急停退出
+            # - pause.flag 存在 → 暂停（删除文件恢复）
+            if stop_requested():
+                print("\n[急停] 检测到 stop.flag 文件，已停止 bot，控制权交还。")
                 return
             # While paused, do nothing but idle: no capture, no decision, no
             # click. Print once per second so it's clear the bot is waiting.
-            if pause.paused:
+            if pause.paused or pause_requested():
                 was_paused = True
-                print("已暂停，按F9继续")
+                print("已暂停（F11 或 pause.flag，删除 pause.flag / 再按 F11 恢复）")
                 time.sleep(1.0)
                 continue
             if was_paused:
@@ -240,7 +259,15 @@ def main() -> None:
                 observation = classify_by_ocr(screenshot, profile, reader)
 
             logger.info(f"classified screen={observation.screen.value} confidence={observation.confidence:.2f}")
-            narrate(f"[识别] 画面={observation.screen.value} 置信度={observation.confidence:.2f}")
+            narrate(
+                f"[识别] 第{iteration}帧 画面={observation.screen.value} "
+                f"置信度={observation.confidence:.2f} 回合={state.current_round} "
+                f"角色={state.character_class or '?'}"
+            )
+            # §22.15 画面变化轨迹: 上帧→本帧变了(点击后进入新画面/弹窗), 单独记一条
+            if prev_screen is not None and prev_screen != observation.screen:
+                narrate(f"[画面变化] {prev_screen.value} → {observation.screen.value}")
+            prev_screen = observation.screen
             if observation.screen in (Screen.CHARACTER_SELECT, Screen.BLESSING_SETUP):
                 character_score, blessing_score = journey_origin_visual_scores(screenshot, profile)
                 visual_screen = classify_journey_origin_by_visual(screenshot, profile)
@@ -297,6 +324,23 @@ def main() -> None:
                 time.sleep(args.interval)
                 continue
             consecutive_unknown = 0
+
+            # §22.16 卡死保护：同一画面连续停留超 --stuck-timeout → 停止脚本。
+            # inspector 多帧检视(SHOP/COMMISSION/TRAINING_SELECT)正常 <15s 完成；
+            # 超 30s 说明真卡住(OCR 抖动/决策死循环/游戏无响应)，停比继续安全。
+            if args.stuck_timeout > 0:
+                now = time.time()
+                if observation.screen != stuck_screen:
+                    stuck_screen = observation.screen
+                    stuck_since = now
+                elif now - stuck_since > args.stuck_timeout:
+                    save_image(screenshot, Path("screenshots/live_stuck_latest.png"))
+                    print(
+                        f"\n[卡死保护] 画面 {observation.screen.value} 停留 "
+                        f"{now - stuck_since:.0f}s 超过 {args.stuck_timeout:.0f}s 阈值，停止脚本。"
+                    )
+                    print("[卡死保护] 已保存截图 screenshots/live_stuck_latest.png 供排查。")
+                    return
 
             # Parse payload
             if args.blue_mode:
@@ -367,7 +411,7 @@ def main() -> None:
             # each to reveal its +N gain) and pick whichever gives the most — a
             # fixed bias can't know this turn's best. Mirrors the blessing inspector.
             if observation.screen == Screen.TRAINING_SELECT and _is_iterable_of(observation.payload, TrainingChoice):
-                action = training_inspector.decide(observation.payload, state, image=screenshot, policy=policy)
+                action = training_inspector.decide(observation.payload, state, image=screenshot, policy=policy, profile=profile)
                 if action is not None:
                     print(f"  training_inspector_records={training_inspector.records} pending={training_inspector.pending}")
             elif observation.screen != Screen.TRAINING_SELECT:
@@ -465,7 +509,13 @@ def main() -> None:
                 consecutive_character_confirms = 0
                 last_character_click_target = None
             logger.info(f"decision: {action.kind} target={action.target} reason={action.reason}")
-            narrate(f"[决策] {action.kind} → {action.target} | 理由: {action.reason}")
+            # §22.15 轨迹日志: 决策详情(click 点哪/skip 等待/pause 停)。target 用 center 坐标更人友好
+            if action.target is not None:
+                tgt = action.target
+                tgt_s = f"({tgt.center[0]},{tgt.center[1]})"
+            else:
+                tgt_s = "(无)"
+            narrate(f"[决策] {action.kind} → {tgt_s} | {action.reason}")
             if debug_log:
                 debug_log.dump_decision(action)
             screen_action = map_action_to_rect(action, screenshot.size, client_window.rect)
@@ -477,19 +527,12 @@ def main() -> None:
             # is routed to the focused window. Only when actually executing, so
             # dry-run / diagnosis stays non-invasive.
             if args.execute and action.kind in ("click", "move", "scroll"):
-                # Emergency stop, checked AGAIN right before we move the mouse: the
-                # top-of-loop check can be "beaten" because execute's moveTo yanks
-                # the cursor back to a game target, so a corner-slam during the
-                # (multi-second) OCR phase would be overwritten before the next
-                # top check sees it. Checking here — the last moment before we grab
-                # the mouse — catches a corner-slam from any point in the iteration.
-                if _mouse_at_screen_corner():
-                    print("\n[急停] 鼠标移到屏幕角落，已停止 bot，控制权交还。")
-                    return
                 activate_window(client_window.hwnd)
             result = executor.execute(screen_action)
             logger.info(f"executed: {result.kind} point={result.point} executed={result.executed}")
-            narrate(f"[执行] {result.kind} @ {result.point} ({'真点' if result.executed else 'dry-run'})")
+            # §22.15 轨迹日志: 执行详情(从XX画面 click 到屏幕坐标 真点/dry-run)
+            mode = "真点" if result.executed else "dry-run"
+            narrate(f"[执行] 从 {observation.screen.value} {result.kind} @ {result.point} ({mode})")
 
             # Advance screens (reward / dialogue / post-training) re-capture fast so
             # we don't crawl one click per --interval through them.
@@ -501,7 +544,7 @@ def main() -> None:
                 time.sleep(args.interval)
 
     except KeyboardInterrupt:
-        print("\nstopped by user")
+        print("\n[急停] Ctrl+C 已停止 bot，控制权交还。")
     except RuntimeError as exc:
         print(f"\nerror: {exc}")
     except Exception as exc:

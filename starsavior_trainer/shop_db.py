@@ -49,12 +49,15 @@ DEFAULT_AUTO_PRIORITY = NEVER_BUY_PRIORITY
 
 @dataclass(frozen=True)
 class ShopItemEntry:
-    """模板库一条记录：商品名 + 效果 + 价格 + 分类 + 优先度。"""
+    """模板库一条记录：商品名 + 效果 + 价格 + 分类 + 优先度 + 必买标记。"""
     name: str
     effect: str = ""
     price: int = 0
     classes: tuple[str, ...] = ()  # 空元组 = 适合所有角色
     priority: int = DEFAULT_AUTO_PRIORITY
+    # §22.10 always_buy=True 的商品无视 priority, 只要"能买"(选中时购买按钮蓝色,
+    # 如综合营养剂解除负面旅程状态——有负面状态才亮)就必买, 且优先于一切 priority 商品。
+    always_buy: bool = False
 
 
 def load_shop(path: Path | str) -> list[ShopItemEntry]:
@@ -75,6 +78,7 @@ def load_shop(path: Path | str) -> list[ShopItemEntry]:
             classes=tuple(str(c).strip() for c in (it.get("classes", ()) or ()) if str(c).strip()),
             # 注意：不能用 `or`，否则 priority=0 会被当 falsy 替换成 99
             priority=(int(it["priority"]) if it.get("priority") is not None else DEFAULT_AUTO_PRIORITY),
+            always_buy=bool(it.get("always_buy", False)),
         )
         for it in items
         if isinstance(it, dict) and it.get("name")
@@ -99,11 +103,13 @@ def save_shop(
     price: int = 0,
     classes: tuple[str, ...] | None = None,
     priority: int | None = None,
+    always_buy: bool | None = None,
 ) -> None:
     """自动入库：追加一条记录到模板库 JSON。priority 为 None 时用 DEFAULT_AUTO_PRIORITY(99)。
 
-    已存在的同名记录 → 更新 effect/price/classes（保留 priority 不动，避免覆盖用户手填值）。
-    新记录 → priority 默认 99（用户手填前不会买）。
+    已存在的同名记录 → 更新 effect/price/classes（保留 priority/always_buy 不动，避免覆盖用户手填值）。
+    新记录 → priority 默认 99（用户手填前不会买）, always_buy 默认 False。
+    always_buy 显式传 True/False 时覆盖（None=不动）。
     """
     p = Path(path)
     cleaned_name = (name or "").strip()
@@ -135,15 +141,21 @@ def save_shop(
             it["price"] = int(price or 0)
             it["classes"] = cls_list
             # priority: 用户手填过的（≤5）保留不动；自动入库默认（99）也保留不动
+            # always_buy: 显式传值才覆盖, None=保留不动(同 priority 语义)
+            if always_buy is not None:
+                it["always_buy"] = always_buy
             break
     else:
-        items.append({
+        new_item = {
             "name": cleaned_name,
             "effect": effect.strip(),
             "price": int(price or 0),
             "classes": cls_list,
             "priority": pri,
-        })
+        }
+        if always_buy is not None:
+            new_item["always_buy"] = always_buy
+        items.append(new_item)
 
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
