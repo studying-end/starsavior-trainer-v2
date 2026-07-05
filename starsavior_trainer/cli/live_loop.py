@@ -412,6 +412,9 @@ def main() -> None:
             # fixed bias can't know this turn's best. Mirrors the blessing inspector.
             if observation.screen == Screen.TRAINING_SELECT and _is_iterable_of(observation.payload, TrainingChoice):
                 action = training_inspector.decide(observation.payload, state, image=screenshot, policy=policy, profile=profile)
+                # §22.25 debug 模式截训练选择帧（复盘 inspector 决策：inspect/choose/confirm 每步）
+                if debug_log and action is not None:
+                    save_image(screenshot, Path(f"screenshots/debug_select_{iteration}.png"))
                 if action is not None:
                     print(f"  training_inspector_records={training_inspector.records} pending={training_inspector.pending}")
             elif observation.screen != Screen.TRAINING_SELECT:
